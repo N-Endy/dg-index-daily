@@ -20,10 +20,12 @@ Short version:
 | Piece | Setting |
 |--------|---------|
 | Build | `Dockerfile` |
-| Volume | Mount at `/data` |
+| Volume | Mount at `/data` on the **web** service only |
 | Env | `DATA_DIR=/data` |
-| Web start | `uvicorn dg.web.app:app --host 0.0.0.0 --port $PORT` |
-| Cron (daily 08:00 UTC) | `python run_daily.py` (same image + same volume) |
+| Start | `sh /app/deploy/start.sh` (uvicorn + daily pipeline in one container) |
+| Schedule | Built-in: runs at **08:00 UTC** (`CRON_HOUR_UTC`) — no second cron service |
+
+Railway cannot share one volume across two services, so the daily refresh runs **inside** the web container.
 
 ## Local development (optional)
 
