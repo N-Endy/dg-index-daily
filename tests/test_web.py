@@ -87,6 +87,15 @@ def test_guide_renders(web_client):
     assert "PPDA" in r.text
     assert "Markets" in r.text or "BTTS" in r.text
     assert "DG Rating" in r.text or "DGRtg" in r.text
+    assert "Strongest leans" in r.text
+
+
+def test_strongest_page_renders(web_client):
+    r = web_client.get("/strongest")
+    assert r.status_code == 200
+    assert "Strongest leans" in r.text
+    assert "cleared the bar" in r.text or "No fixtures today cleared" in r.text or "No data" in r.text
+    assert 'href="/strongest"' in r.text or "aria-current" in r.text
 
 
 def test_dashboard_empty_db(tmp_path, monkeypatch):

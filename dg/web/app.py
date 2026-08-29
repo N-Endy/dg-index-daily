@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from dg.report.best_leans import load_strongest_day
 from dg.report.loaders import (
     enrich_prediction_for_display,
     group_predictions_by_date,
@@ -79,6 +80,16 @@ def dashboard(
             "grouped": grouped,
             "n_shown": len(enriched),
         },
+    )
+
+
+@app.get("/strongest", response_class=HTMLResponse)
+def strongest(request: Request):
+    ctx = load_strongest_day()
+    return TEMPLATES.TemplateResponse(
+        request,
+        "strongest.html",
+        ctx,
     )
 
 

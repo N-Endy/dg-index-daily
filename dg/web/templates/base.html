@@ -23,6 +23,7 @@
       </a>
       <nav aria-label="Primary">
         <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="/strongest" {% if request.url.path == '/strongest' %}aria-current="page"{% endif %}>Strongest leans</a>
         <a href="/guide" {% if request.url.path == '/guide' %}aria-current="page"{% endif %}>How to read this</a>
       </nav>
     </div>

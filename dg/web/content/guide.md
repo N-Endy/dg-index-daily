@@ -92,9 +92,19 @@ Each team gets five index scores (roughly 0–100, higher is usually “more of 
 
 We also use **home vs away** splits of these numbers so a team’s home profile is compared to the opponent’s away profile.
 
+## Strongest leans (today only)
+
+The **Strongest leans** page posts **at most one** outcome per fixture for the **current UTC day**. It scores every published market plus the match-winner lean, then keeps a pick only if it clears a conservative bar:
+
+- **High** confidence
+- Model probability **≥ 65%** (missing probability fails — unlike the dashboard filters)
+- When DG and/or book signals exist for that market, the lean must **agree with every present signal** (both when both exist)
+
+Fixtures that fail the bar are **omitted**. Goal-model markets are preferred over style-only lines (corners / shots / cards) when both qualify. This still **does not eliminate risk** and is **not betting advice** — it is a stricter shortlist of the same rule-based leans.
+
 ## How to use this properly
 
-1. Open the **dashboard** and pick a date / league if you want a quieter list.
+1. Open **Strongest leans** for today’s high-bar shortlist, or the **dashboard** for the full board (any date / league).
 2. Optionally open **Market leans** in the sidebar to combine directions — for example BTTS Yes **and** SOT Over **and** Goals 2.5 Over. Use **Match all** (default) so every pick must hold, or **Match any** if one is enough.
 3. Raise **Min probability** / **Min confidence** to keep only stronger market leans. With no market picks selected, those floors apply to the main match-winner lean instead.
 4. Skim **high-confidence** leans first; treat low-confidence as noise.

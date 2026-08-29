@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Strongest leans · DG Index Daily{% endblock %}
+{% block content %}
+
+<section class="page-intro rail-fade">
+  <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
+  <h1>Strongest leans today</h1>
+  <p class="lede">
+    One high-bar market (or match-winner) lean per fixture — high confidence, strong probability,
+    and agreement with DG / book when those signals exist. Still exploratory, not risk-free.
+  </p>
+</section>
+
+{% if stale %}
+<div class="banner banner-warn" role="status">
+  Data looks <strong>stale</strong>
+  {% if staleness_hours %}(about {{ '%.0f'|format(staleness_hours) }} hours old){% endif %}.
+  Treat these cautiously until the next refresh.
+</div>
+{% endif %}
+
+{% if empty %}
+<div class="banner banner-info" role="status">
+  {{ message or "No data yet." }} Run the daily job once, or wait for the Railway cron.
+</div>
+{% else %}
+
+<div class="strongest-meta">
+  <p>
+    {{ n_picks }} of {{ n_fixtures }} fixture{% if n_fixtures != 1 %}s{% endif %} cleared the bar today.
+    <a href="/?date={{ day }}">Open full dashboard for {{ day }}</a>
+  </p>
+</div>
+
+{% if picks %}
+<div class="strip-list strongest-list">
+  {% for p in picks %}
+  <article class="fixture-strip conf-{{ p.confidence }} strip-enter strongest-card" style="--i: {{ loop.index0 }}">
+    <div class="strip-edge" aria-hidden="true"></div>
+    <div class="strip-body">
+      <div class="strip-meta">
+        <span class="league">{{ p.league or "—" }}</span>
+        <span class="kickoff">{{ p.kickoff_display }}</span>
+        <span class="agree agree-{{ p.agreement_key }}">{{ p.agreement_label }}</span>
+      </div>
+
+      <div class="strip-main">
+        <h3 class="matchup">
+          <span class="team home">{{ p.home_name }}</span>
+          <span class="vs">vs</span>
+          <span class="team away">{{ p.away_name }}</span>
+        </h3>
+        <div class="lean-block lean-settle">
+          <p class="featured-market">{{ p.market_label }}</p>
+          <p class="lean">{{ p.lean_plain }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}</p>
+          <p class="conf">{{ p.confidence_blurb }}</p>
+        </div>
+      </div>
+
+      {% if p.strength_label %}
+      <p class="strength">{{ p.strength_label }}</p>
+      {% endif %}
+
+      <ul class="baselines">
+        {% if p.dg_lean %}<li>DG model: {{ p.dg_lean }}</li>{% endif %}
+        {% if p.book_lean %}<li>Book: {{ p.book_lean }}</li>{% endif %}
+        {% if not p.dg_lean and not p.book_lean %}
+        <li>No DG / book compare for this market</li>
+        {% endif %}
+      </ul>
+
+      {% if p.why %}
+      <div class="why">
+        <h4>Why</h4>
+        <ul>
+          {% for w in p.why[:4] %}
+          <li>{{ w }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="banner banner-info" role="status">
+  No fixtures today cleared the strongest-lean bar
+  (high confidence, ≥65% model probability, and full DG/book agreement when both exist).
+  Check the <a href="/?date={{ day }}">dashboard</a> for the full list.
+</div>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

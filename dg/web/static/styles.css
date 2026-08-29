@@ -531,6 +531,36 @@ nav a[aria-current="page"] {
   background: #f8e4e4;
 }
 
+.strongest-meta {
+  margin: 0 0 var(--space-4);
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.strongest-meta a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.strongest-list {
+  max-width: 52rem;
+}
+
+.featured-market {
+  margin: 0 0 0.15rem;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.strongest-card .lean {
+  font-size: 1.35rem;
+}
+
 .strip-main {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(10rem, 0.8fr);
