@@ -1,0 +1,1174 @@
+{
+  "source": "football-data.co.uk",
+  "aliases": [
+    {
+      "source_name": "AZ Alkmaar",
+      "league_code": "N1",
+      "team_id": 201,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Aberdeen",
+      "league_code": "SC0",
+      "team_id": 252,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Academico Viseu",
+      "league_code": "P1",
+      "team_id": 238,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Ajax",
+      "league_code": "N1",
+      "team_id": 194,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Alanyaspor",
+      "league_code": "T1",
+      "team_id": 996,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Alaves",
+      "league_code": "SP1",
+      "team_id": 542,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Alverca",
+      "league_code": "P1",
+      "team_id": 4724,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Anderlecht",
+      "league_code": "B1",
+      "team_id": 554,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Angers",
+      "league_code": "F1",
+      "team_id": 77,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Antwerp",
+      "league_code": "B1",
+      "team_id": 740,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Arouca",
+      "league_code": "P1",
+      "team_id": 240,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Arsenal",
+      "league_code": "E0",
+      "team_id": 42,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Aston Villa",
+      "league_code": "E0",
+      "team_id": 66,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Atalanta",
+      "league_code": "I1",
+      "team_id": 499,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Ath Madrid",
+      "league_code": "SP1",
+      "team_id": 530,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Auxerre",
+      "league_code": "F1",
+      "team_id": 108,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Barcelona",
+      "league_code": "SP1",
+      "team_id": 529,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Benfica",
+      "league_code": "P1",
+      "team_id": 211,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Beveren",
+      "league_code": "B1",
+      "team_id": 738,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Birmingham",
+      "league_code": "E1",
+      "team_id": 54,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Blackburn",
+      "league_code": "E1",
+      "team_id": 67,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Bologna",
+      "league_code": "I1",
+      "team_id": 500,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Bolton",
+      "league_code": "E1",
+      "team_id": 68,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Bournemouth",
+      "league_code": "E0",
+      "team_id": 35,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Brentford",
+      "league_code": "E0",
+      "team_id": 55,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Brighton",
+      "league_code": "E0",
+      "team_id": 51,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Bristol City",
+      "league_code": "E1",
+      "team_id": 56,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Burnley",
+      "league_code": "E1",
+      "team_id": 44,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Cagliari",
+      "league_code": "I1",
+      "team_id": 490,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Cambuur",
+      "league_code": "N1",
+      "team_id": 420,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Cardiff",
+      "league_code": "E1",
+      "team_id": 43,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Casa Pia",
+      "league_code": "P1",
+      "team_id": 4716,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Celtic",
+      "league_code": "SC0",
+      "team_id": 247,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Cercle Brugge",
+      "league_code": "B1",
+      "team_id": 741,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Charleroi",
+      "league_code": "B1",
+      "team_id": 736,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Charlton",
+      "league_code": "E1",
+      "team_id": 1335,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Chelsea",
+      "league_code": "E0",
+      "team_id": 49,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Club Brugge",
+      "league_code": "B1",
+      "team_id": 569,
+      "confidence": 0.88,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Como",
+      "league_code": "I1",
+      "team_id": 895,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Coventry",
+      "league_code": "E0",
+      "team_id": 1346,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Crystal Palace",
+      "league_code": "E0",
+      "team_id": 52,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Den Haag",
+      "league_code": "N1",
+      "team_id": 198,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Derby",
+      "league_code": "E1",
+      "team_id": 69,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Dundee",
+      "league_code": "SC0",
+      "team_id": 253,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Dundee United",
+      "league_code": "SC0",
+      "team_id": 1386,
+      "confidence": 0.87,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Elche",
+      "league_code": "SP1",
+      "team_id": 797,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Erzurumspor",
+      "league_code": "T1",
+      "team_id": 1009,
+      "confidence": 0.88,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Espanol",
+      "league_code": "SP1",
+      "team_id": 540,
+      "confidence": 0.93,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Estoril",
+      "league_code": "P1",
+      "team_id": 230,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Estrela",
+      "league_code": "P1",
+      "team_id": 15130,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Everton",
+      "league_code": "E0",
+      "team_id": 45,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Excelsior",
+      "league_code": "N1",
+      "team_id": 196,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Eyupspor",
+      "league_code": "T1",
+      "team_id": 3588,
+      "confidence": 0.93,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Falkirk",
+      "league_code": "SC0",
+      "team_id": 1389,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Famalicao",
+      "league_code": "P1",
+      "team_id": 242,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Fenerbahce",
+      "league_code": "T1",
+      "team_id": 611,
+      "confidence": 0.95,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Feyenoord",
+      "league_code": "N1",
+      "team_id": 209,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Fiorentina",
+      "league_code": "I1",
+      "team_id": 502,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "For Sittard",
+      "league_code": "N1",
+      "team_id": 205,
+      "confidence": 0.85,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Frosinone",
+      "league_code": "I1",
+      "team_id": 512,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Fulham",
+      "league_code": "E0",
+      "team_id": 36,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Galatasaray",
+      "league_code": "T1",
+      "team_id": 645,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Genclerbirligi",
+      "league_code": "T1",
+      "team_id": 997,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Genk",
+      "league_code": "B1",
+      "team_id": 742,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Genoa",
+      "league_code": "I1",
+      "team_id": 495,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Gent",
+      "league_code": "B1",
+      "team_id": 631,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Getafe",
+      "league_code": "SP1",
+      "team_id": 546,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Gil Vicente",
+      "league_code": "P1",
+      "team_id": 762,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Go Ahead Eagles",
+      "league_code": "N1",
+      "team_id": 410,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Goztep",
+      "league_code": "T1",
+      "team_id": 994,
+      "confidence": 0.83,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Groningen",
+      "league_code": "N1",
+      "team_id": 202,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Guimaraes",
+      "league_code": "P1",
+      "team_id": 224,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Hannover",
+      "league_code": "D2",
+      "team_id": 166,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Heerenveen",
+      "league_code": "N1",
+      "team_id": 210,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Heidenheim",
+      "league_code": "D2",
+      "team_id": 180,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Hibernian",
+      "league_code": "SC0",
+      "team_id": 249,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Holstein Kiel",
+      "league_code": "D2",
+      "team_id": 191,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Hull",
+      "league_code": "E0",
+      "team_id": 64,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Inter",
+      "league_code": "I1",
+      "team_id": 505,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Ipswich",
+      "league_code": "E0",
+      "team_id": 57,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Juventus",
+      "league_code": "I1",
+      "team_id": 496,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Kaiserslautern",
+      "league_code": "D2",
+      "team_id": 745,
+      "confidence": 0.85,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Karlsruhe",
+      "league_code": "D2",
+      "team_id": 785,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Kilmarnock",
+      "league_code": "SC0",
+      "team_id": 250,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Kocaelispor",
+      "league_code": "T1",
+      "team_id": 7411,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Konyaspor",
+      "league_code": "T1",
+      "team_id": 607,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Kortrijk",
+      "league_code": "B1",
+      "team_id": 734,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lazio",
+      "league_code": "I1",
+      "team_id": 487,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Le Havre",
+      "league_code": "F1",
+      "team_id": 111,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Le Mans",
+      "league_code": "F1",
+      "team_id": 1298,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lecce",
+      "league_code": "I1",
+      "team_id": 867,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Leeds",
+      "league_code": "E0",
+      "team_id": 63,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lens",
+      "league_code": "F1",
+      "team_id": 116,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Levante",
+      "league_code": "SP1",
+      "team_id": 539,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lille",
+      "league_code": "F1",
+      "team_id": 79,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lincoln",
+      "league_code": "E1",
+      "team_id": 1379,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Liverpool",
+      "league_code": "E0",
+      "team_id": 40,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lorient",
+      "league_code": "F1",
+      "team_id": 97,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Lyon",
+      "league_code": "F1",
+      "team_id": 80,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Malaga",
+      "league_code": "SP1",
+      "team_id": 535,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Man City",
+      "league_code": "E0",
+      "team_id": 50,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Man United",
+      "league_code": "E0",
+      "team_id": 33,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Maritimo",
+      "league_code": "P1",
+      "team_id": 214,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Marseille",
+      "league_code": "F1",
+      "team_id": 81,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Mechelen",
+      "league_code": "B1",
+      "team_id": 266,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Middlesbrough",
+      "league_code": "E1",
+      "team_id": 70,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Millwall",
+      "league_code": "E1",
+      "team_id": 58,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Monaco",
+      "league_code": "F1",
+      "team_id": 91,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Monza",
+      "league_code": "I1",
+      "team_id": 1579,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Moreirense",
+      "league_code": "P1",
+      "team_id": 215,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Motherwell",
+      "league_code": "SC0",
+      "team_id": 256,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Nacional",
+      "league_code": "P1",
+      "team_id": 225,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Napoli",
+      "league_code": "I1",
+      "team_id": 492,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Newcastle",
+      "league_code": "E0",
+      "team_id": 34,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Nice",
+      "league_code": "F1",
+      "team_id": 84,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Nijmegen",
+      "league_code": "N1",
+      "team_id": 413,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Norwich",
+      "league_code": "E1",
+      "team_id": 71,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Nott'm Forest",
+      "league_code": "E0",
+      "team_id": 65,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Osasuna",
+      "league_code": "SP1",
+      "team_id": 727,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Osnabruck",
+      "league_code": "D2",
+      "team_id": 1324,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "PSV Eindhoven",
+      "league_code": "N1",
+      "team_id": 197,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Paris FC",
+      "league_code": "F1",
+      "team_id": 114,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Paris SG",
+      "league_code": "F1",
+      "team_id": 85,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Parma",
+      "league_code": "I1",
+      "team_id": 523,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Portsmouth",
+      "league_code": "E1",
+      "team_id": 1355,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Preston",
+      "league_code": "E1",
+      "team_id": 59,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "QPR",
+      "league_code": "E1",
+      "team_id": 72,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "RAAL La Louviere",
+      "league_code": "B1",
+      "team_id": 5902,
+      "confidence": 0.97,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Rangers",
+      "league_code": "SC0",
+      "team_id": 257,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Real Madrid",
+      "league_code": "SP1",
+      "team_id": 541,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Rennes",
+      "league_code": "F1",
+      "team_id": 94,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Rio Ave",
+      "league_code": "P1",
+      "team_id": 226,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Rizespor",
+      "league_code": "T1",
+      "team_id": 1007,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Samsunspor",
+      "league_code": "T1",
+      "team_id": 3603,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Santa Clara",
+      "league_code": "P1",
+      "team_id": 227,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sassuolo",
+      "league_code": "I1",
+      "team_id": 488,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sevilla",
+      "league_code": "SP1",
+      "team_id": 536,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sheffield United",
+      "league_code": "E1",
+      "team_id": 62,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Southampton",
+      "league_code": "E1",
+      "team_id": 41,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sp Braga",
+      "league_code": "P1",
+      "team_id": 217,
+      "confidence": 0.88,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Sparta Rotterdam",
+      "league_code": "N1",
+      "team_id": 426,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "St Johnstone",
+      "league_code": "SC0",
+      "team_id": 258,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "St Mirren",
+      "league_code": "SC0",
+      "team_id": 251,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "St Pauli",
+      "league_code": "D2",
+      "team_id": 186,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "St Truiden",
+      "league_code": "B1",
+      "team_id": 735,
+      "confidence": 1.0,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Strasbourg",
+      "league_code": "F1",
+      "team_id": 95,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sunderland",
+      "league_code": "E0",
+      "team_id": 746,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Swansea",
+      "league_code": "E1",
+      "team_id": 76,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Telstar",
+      "league_code": "N1",
+      "team_id": 427,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Torino",
+      "league_code": "I1",
+      "team_id": 503,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Tottenham",
+      "league_code": "E0",
+      "team_id": 47,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Toulouse",
+      "league_code": "F1",
+      "team_id": 96,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Trabzonspor",
+      "league_code": "T1",
+      "team_id": 998,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Twente",
+      "league_code": "N1",
+      "team_id": 415,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Udinese",
+      "league_code": "I1",
+      "team_id": 494,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Utrecht",
+      "league_code": "N1",
+      "team_id": 207,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Valencia",
+      "league_code": "SP1",
+      "team_id": 532,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Venezia",
+      "league_code": "I1",
+      "team_id": 517,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Villarreal",
+      "league_code": "SP1",
+      "team_id": 533,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Watford",
+      "league_code": "E1",
+      "team_id": 38,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "West Brom",
+      "league_code": "E1",
+      "team_id": 60,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "West Ham",
+      "league_code": "E1",
+      "team_id": 48,
+      "confidence": 1.0,
+      "method": "seed"
+    },
+    {
+      "source_name": "Westerlo",
+      "league_code": "B1",
+      "team_id": 261,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Willem II",
+      "league_code": "N1",
+      "team_id": 195,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Wolfsburg",
+      "league_code": "D2",
+      "team_id": 161,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Wolves",
+      "league_code": "E1",
+      "team_id": 39,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Wrexham",
+      "league_code": "E1",
+      "team_id": 1837,
+      "confidence": 1.0,
+      "method": "exact"
+    }
+  ]
+}

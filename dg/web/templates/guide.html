@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}How to read this · DG Index Daily{% endblock %}
+{% block content %}
+<article class="guide prose rail-fade">
+  {{ guide_html | safe }}
+</article>
+<p class="back-link"><a href="/">← Back to dashboard</a></p>
+{% endblock %}

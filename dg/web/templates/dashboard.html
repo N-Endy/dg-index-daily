@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · DG Index Daily{% endblock %}
+{% block scripts %}
+<script src="/static/board.js" defer></script>
+{% endblock %}
+{% block content %}
+
+<section class="page-intro rail-fade">
+  <p class="eyebrow">DataGaffer DG Index</p>
+  <h1>Today’s fixture leans</h1>
+  <p class="lede">Directional notes from team ratings — written for humans, not tipsters.</p>
+</section>
+
+{% if stale %}
+<div class="banner banner-warn" role="status">
+  Data looks <strong>stale</strong>
+  {% if staleness_hours %}(about {{ '%.0f'|format(staleness_hours) }} hours old){% endif %}.
+  A scheduled refresh should catch up soon — treat numbers cautiously until then.
+</div>
+{% endif %}
+
+{% if empty %}
+<div class="banner banner-info" role="status">
+  {{ message or "No data yet." }} Run the daily job once, or wait for the Railway cron.
+</div>
+{% else %}
+
+<div class="shell">
+  <aside class="rail rail-fade" aria-label="Controls">
+    <div class="status-ribbon status-{{ status }}">
+      <span class="status-code">{{ status|upper }}</span>
+      <dl class="status-meta">
+        <div>
+          <dt>DG update</dt>
+          <dd>{{ generated_at }}</dd>
+        </div>
+        {% if staleness_hours is not none %}
+        <div>
+          <dt>Age</dt>
+          <dd>{{ '%.1f'|format(staleness_hours) }}h</dd>
+        </div>
+        {% endif %}
+        <div>
+          <dt>Teams</dt>
+          <dd>{{ n_teams }}</dd>
+        </div>
+        <div>
+          <dt>Showing</dt>
+          <dd>{{ n_shown }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <form class="filters" method="get" action="/">
+      <h2 class="rail-title">Filters</h2>
+      <label>
+        Date
+        <select name="date">
+          <option value="">All dates</option>
+          {% for d in dates %}
+          <option value="{{ d }}" {% if date_filter == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        League
+        <select name="league">
+          <option value="">All leagues</option>
+          {% for L in leagues %}
+          <option value="{{ L }}" {% if league_filter == L %}selected{% endif %}>{{ L }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <details class="market-filters" {% if n_market_filters or min_prob or min_conf %}open{% endif %}>
+        <summary>
+          Market leans
+          {% if n_market_filters %}
+          <span class="filter-badge">{{ n_market_filters }} active</span>
+          {% endif %}
+        </summary>
+        <p class="filter-hint">Pick directions to combine with date / league. Empty = Any.</p>
+        {% for opt in market_filter_options %}
+        <label>
+          {{ opt.label }}
+          <select name="m">
+            <option value="">Any</option>
+            {% for side in opt.sides %}
+            <option value="{{ opt.key }}:{{ side }}" {% if opt.selected == side %}selected{% endif %}>{{ side }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        {% endfor %}
+
+        <fieldset class="match-mode">
+          <legend>Combine as</legend>
+          <label class="radio">
+            <input type="radio" name="mode" value="all" {% if match_mode != 'any' %}checked{% endif %} />
+            Match all
+          </label>
+          <label class="radio">
+            <input type="radio" name="mode" value="any" {% if match_mode == 'any' %}checked{% endif %} />
+            Match any
+          </label>
+        </fieldset>
+
+        <label>
+          Min probability
+          <select name="min_prob">
+            <option value="" {% if not min_prob %}selected{% endif %}>Any</option>
+            <option value="0.55" {% if min_prob == 0.55 %}selected{% endif %}>55%+</option>
+            <option value="0.6" {% if min_prob == 0.6 %}selected{% endif %}>60%+</option>
+            <option value="0.65" {% if min_prob == 0.65 %}selected{% endif %}>65%+</option>
+            <option value="0.7" {% if min_prob == 0.7 %}selected{% endif %}>70%+</option>
+          </select>
+        </label>
+        <label>
+          Min confidence
+          <select name="min_conf">
+            <option value="" {% if not min_conf %}selected{% endif %}>Any</option>
+            <option value="medium" {% if min_conf == 'medium' %}selected{% endif %}>Medium+</option>
+            <option value="high" {% if min_conf == 'high' %}selected{% endif %}>High</option>
+          </select>
+        </label>
+      </details>
+
+      <div class="filter-actions">
+        <button type="submit">Apply</button>
+        {% if date_filter or league_filter or n_market_filters or min_prob or min_conf %}
+        <a class="link-clear" href="/">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+
+    <section class="howto-short">
+      <h2 class="rail-title">How to use this</h2>
+      <ul>
+        <li>Skim <strong>high / medium</strong> confidence first.</li>
+        <li><strong>Our lean</strong> is a direction, not a score.</li>
+        <li><strong>Aligned</strong> with book &amp; DG model is interesting — not proof.</li>
+        <li>Full guide: <a href="/guide">How to read this</a>.</li>
+      </ul>
+    </section>
+  </aside>
+
+  <div class="board">
+    {% if grouped %}
+    {% for day, items in grouped %}
+    <section class="day-block">
+      <h2 class="day-heading">{{ day }}</h2>
+      <div class="strip-list">
+        {% for p in items %}
+        <article class="fixture-strip conf-{{ p.confidence_key }} strip-enter" style="--i: {{ loop.index0 }}">
+          <div class="strip-edge" aria-hidden="true"></div>
+          <div class="strip-body">
+            <div class="strip-meta">
+              <span class="league">{{ p.league or "—" }}</span>
+              <span class="kickoff">{{ p.kickoff_display }}</span>
+              <span class="agree agree-{{ p.agreement_key }}">{{ p.agreement_label }}</span>
+            </div>
+
+            <div class="strip-main">
+              <h3 class="matchup">
+                <span class="team home">{{ p.home_name }}</span>
+                <span class="vs">vs</span>
+                <span class="team away">{{ p.away_name }}</span>
+              </h3>
+              <div class="lean-block lean-settle">
+                <p class="lean">{{ p.lean_label }}{% if p.lean_prob_plain %} <span class="lean-prob">{{ p.lean_prob_plain }}</span>{% endif %}</p>
+                <p class="conf">{{ p.confidence_blurb }}</p>
+              </div>
+            </div>
+
+            {% if p.strength_label %}
+            <p class="strength">{{ p.strength_label }}</p>
+            {% endif %}
+
+            <p class="style">{{ p.style_label }}</p>
+
+            <ul class="baselines">
+              <li>{{ p.dg_sim_label }}</li>
+              <li>{{ p.book_label }}</li>
+            </ul>
+
+            {% if p.market_chips %}
+            <div class="markets" aria-label="Other markets">
+              <h4>Markets</h4>
+              <div class="market-chips">
+                {% for m in p.market_chips %}
+                <span class="market-chip conf-{{ m.confidence_key }}" title="{{ m.confidence }} · {{ (m.drivers or [])|join('; ') }}">
+                  <span class="m-label">{{ m.chip_label }}</span>
+                  <span class="m-lean">{{ m.lean_plain }}</span>
+                  {% if m.prob_plain %}<span class="m-prob">{{ m.prob_plain }}</span>{% endif %}
+                </span>
+                {% endfor %}
+              </div>
+              <details class="markets-detail">
+                <summary>Market details</summary>
+                <ul>
+                  {% for m in p.market_chips %}
+                  <li>
+                    <strong>{{ m.label }}</strong>: {{ m.lean_plain }}
+                    {% if m.prob_plain %} · {{ m.prob_plain }}{% endif %}
+                    ({{ m.confidence }})
+                    {% if m.dg_lean %} · DG {{ m.dg_lean }}{% endif %}
+                    {% if m.book_lean %} · Book {{ m.book_lean }}{% endif %}
+                    {% if m.drivers %}<br /><span class="m-why">{{ m.drivers|join('; ') }}</span>{% endif %}
+                  </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            </div>
+            {% endif %}
+
+            {% if p.why %}
+            <div class="why">
+              <h4>Why</h4>
+              <ul>
+                {% for w in p.why[:4] %}
+                <li>{{ w }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+
+            <details class="tech">
+              <summary>Technical details</summary>
+              <dl>
+                <dt>Model</dt><dd>{{ p.model_version or model_version or "—" }}</dd>
+                <dt>Raw lean</dt><dd>{{ p.lean }} (score {{ p.score }})</dd>
+                <dt>Character code</dt><dd>{{ p.match_character }}</dd>
+                {% if p.sim_xg_home is not none %}
+                <dt>DG sim xG</dt><dd>{{ p.sim_xg_home }} – {{ p.sim_xg_away }}</dd>
+                {% endif %}
+              </dl>
+            </details>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+    {% else %}
+    <p class="empty-filter">No fixtures match these filters. Try clearing a market lean or lowering the probability / confidence floors.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endif %}
+
+{% endblock %}

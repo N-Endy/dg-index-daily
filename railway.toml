@@ -1,0 +1,13 @@
+# Railway configuration for the web service.
+# Create a second service from the same repo for the daily cron
+# (see deploy/RAILWAY.md). Both must mount the same volume at /data.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "uvicorn dg.web.app:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"

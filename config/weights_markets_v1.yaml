@@ -1,0 +1,82 @@
+# markets_v2 — core-line rules with Poisson goal probabilities as primary driver
+version: markets_v2
+
+confidence:
+  high_abs_score_gte: 0.30
+  medium_abs_score_gte: 0.12
+  min_history_for_high: 2
+  min_consistency_for_high: 0.55
+
+# Positive score → first lean in each pair (Over / Yes / Home)
+# poisson_*_bias: (prob - 0.5) * 2  — primary for goals-related markets
+goals_2_5:
+  poisson_over_bias: 0.55
+  pace_clash: 0.15
+  nec_sum: 0.15
+  xg_total_bias: 0.10
+  sim_over_bias: 0.05
+
+goals_3_5:
+  poisson_over_bias: 0.55
+  pace_clash: 0.15
+  nec_sum: 0.15
+  xg_total_bias: 0.10          # (sim_xg_total - 3.5) / 2.0
+  sim_over_bias: 0.05
+
+btts:
+  poisson_btts_bias: 0.55
+  nec_sum: 0.15
+  pace_clash: 0.10
+  control_sum_inv: 0.10
+  sim_btts_bias: 0.10
+
+team_goals_home_1_5:
+  poisson_home_o15_bias: 0.55
+  home_nec: 0.20
+  efficiency_edge: 0.15
+  home_xg_bias: 0.05
+  sim_home_o1_5_bias: 0.05
+
+team_goals_away_1_5:
+  poisson_away_o15_bias: 0.55
+  away_nec: 0.20
+  away_efficiency: 0.15
+  away_xg_bias: 0.05
+  sim_away_o1_5_bias: 0.05
+
+fh_1x2:
+  poisson_fh_edge: 0.50
+  agix_asymmetry: 0.20
+  efficiency_edge: 0.15
+  fh_xg_edge: 0.10
+  form_trend: 0.05
+
+fh_over_0_5:
+  poisson_fh_over_bias: 0.55
+  agix_sum: 0.20
+  pace_clash: 0.15
+  fh_xg_total_bias: 0.05
+  sim_fh_over_bias: 0.05
+
+corners_9_5:
+  pace_clash: 0.35
+  nec_sum: 0.20
+  corners_proj_bias: 0.35
+  sim_corners_over_bias: 0.10
+
+shots_25_5:
+  pace_clash: 0.40
+  shots_proj_bias: 0.40
+  sim_shots_over_bias: 0.20
+
+sot_8_5:
+  pace_clash: 0.30
+  nec_sum: 0.25
+  sot_proj_bias: 0.35
+  sim_sot_over_bias: 0.10
+
+cards_3_5:
+  agix_sum: 0.35
+  pressing_intensity: 0.30
+  cards_proj_bias: 0.25
+  aggression_volatility: 0.10

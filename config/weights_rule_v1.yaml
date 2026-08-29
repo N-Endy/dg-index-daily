@@ -1,0 +1,26 @@
+# rule_v2 composite weights — includes DG Rating strength gap
+# Positive weight on a feature contributes to home lean when feature > 0
+version: rule_v2
+weights:
+  rating_gap: 0.35             # venue-aware home_rating - away_rating (primary strength)
+  pressing_mismatch: 0.15      # home_ppda_z - away_ppda_z
+  pace_clash: 0.03
+  attack_vs_control_home: 0.12
+  attack_vs_control_away: -0.12
+  aggression_asymmetry: 0.05
+  efficiency_edge: 0.15
+  form_trend: 0.08             # dgr_index trend slope gap
+character:
+  open_pace_sum_gte: 120
+  tight_pace_sum_lte: 80
+  volatile_aggression_abs_gte: 25
+confidence:
+  high_abs_score_gte: 0.30
+  medium_abs_score_gte: 0.12
+  min_history_for_high: 3
+  min_consistency_for_high: 0.55
+  high_prob_margin: 0.12       # winning 1X2 prob - second place
+  medium_prob_margin: 0.05
+# How strongly the style composite tilts Poisson 1X2 probabilities
+style_tilt_scale: 0.18         # max absolute shift applied to home/away mass
+style_tilt_cap: 0.12

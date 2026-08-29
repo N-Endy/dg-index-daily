@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}DG Index Daily{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-name">DG Index Daily</span>
+          <span class="brand-tag">Matchday press sheet</span>
+        </span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="/guide" {% if request.url.path == '/guide' %}aria-current="page"{% endif %}>How to read this</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer wrap">
+    <p>Exploratory analytics only — not betting advice. Rule-based model, not self-learning.</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

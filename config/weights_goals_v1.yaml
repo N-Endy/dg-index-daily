@@ -1,0 +1,12 @@
+# goals_v1 — Poisson expected-goals layer from DG Rating ORtg / DRtg
+version: goals_v1
+
+# Multiplicative ratio model:
+#   lam_home = (home_att / L) * (away_def / L) * L * home_adv * coef_scale
+home_advantage: 1.08
+default_league_avg: 1.35
+xg_blend_weight: 0.25          # blend xgf/xga when both sides have non-zero xG
+max_goals: 8
+fh_goal_share: 0.42            # share of full-time lambda assigned to first half
+min_lambda: 0.15
+max_lambda: 4.5
