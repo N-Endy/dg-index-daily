@@ -277,6 +277,105 @@ def team_match_score(a: str, b: str) -> int:
     )
 
 
+# League label noise (do not include "championship" — bare fixture names use it as the identity).
+_LEAGUE_STOPWORDS = frozenset(
+    {
+        "standings",
+        "qualification",
+        "play",
+        "offs",
+        "round",
+        "group",
+        "stage",
+        "phase",
+        "preliminary",
+        "league",
+        "division",
+        "cup",
+        "of",
+        "the",
+        "and",
+    }
+)
+# Drop country prefixes when other meaningful tokens remain (Flashscore "ENGLAND: …").
+_LEAGUE_COUNTRY_NOISE = frozenset(
+    {
+        "england",
+        "scotland",
+        "wales",
+        "ireland",
+        "spain",
+        "italy",
+        "germany",
+        "france",
+        "portugal",
+        "netherlands",
+        "belgium",
+        "brazil",
+        "argentina",
+        "mexico",
+        "usa",
+        "turkey",
+        "greece",
+        "poland",
+        "sweden",
+        "norway",
+        "denmark",
+        "austria",
+        "switzerland",
+        "romania",
+        "ukraine",
+        "russia",
+        "japan",
+        "korea",
+        "china",
+        "australia",
+        "canada",
+    }
+)
+
+
+def _league_tokens(league: str) -> set[str]:
+    text = unicodedata.normalize("NFKD", league or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = text.lower()
+    text = re.sub(r"[-.:/,()]+", " ", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return set()
+    parts = [p for p in text.split() if p and p not in _LEAGUE_STOPWORDS]
+    if len(parts) > 1:
+        parts = [p for p in parts if p not in _LEAGUE_COUNTRY_NOISE]
+    return set(parts)
+
+
+def league_match_score(a: str, b: str) -> float:
+    """
+    0–1 league label similarity (MatchPredictor GetLeagueMatchScore style).
+    Empty either side → 0.0.
+    """
+    words_a = _league_tokens(a)
+    words_b = _league_tokens(b)
+    if not words_a or not words_b:
+        return 0.0
+    key_a = "|".join(sorted(words_a))
+    key_b = "|".join(sorted(words_b))
+    if key_a == key_b:
+        return 1.0
+    shorter, longer = (words_a, words_b) if len(words_a) <= len(words_b) else (words_b, words_a)
+    matched = 0.0
+    for token in shorter:
+        if token in longer:
+            matched += 1.0
+            continue
+        if len(token) >= 4 and any(
+            lt.startswith(token) or token.startswith(lt) for lt in longer if len(lt) >= 4
+        ):
+            matched += 0.85
+    return matched / len(shorter)
+
+
 def row_fingerprint(row: Dict[str, Any]) -> str:
     home, away, fthg, ftag, league = _row_dedupe_key(row)
     return f"{home}|{away}|{fthg}|{ftag}|{league}"

@@ -7,12 +7,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dg import config
 from dg.ingest.fixture_scores import upsert_score_result
-from dg.sources.flashscore import row_fingerprint, team_match_score
+from dg.sources.flashscore import league_match_score, row_fingerprint, team_match_score
 
 logger = logging.getLogger(__name__)
 
 SOURCE_MANUAL = "flashscore-manual"
 ORIENTATION_EPS = 5  # prefer flipped only if clearly better
+LEAGUE_RANK_BOOST = 5.0  # small boost so same-league ties win
 
 
 def _utcnow_iso() -> str:
@@ -103,18 +104,29 @@ def find_score_near_misses(
     *,
     min_side: Optional[int] = None,
     min_avg: Optional[int] = None,
+    min_league: Optional[float] = None,
     limit: int = 5,
 ) -> List[Dict[str, Any]]:
     """Soft candidates for an unscored fixture (MatchPredictor hint band)."""
     side_floor = int(min_side if min_side is not None else config.FLASHSCORE_HINT_MIN_SIDE)
     avg_floor = int(min_avg if min_avg is not None else config.FLASHSCORE_HINT_MIN_AVG)
+    league_floor = float(
+        min_league if min_league is not None else config.FLASHSCORE_HINT_MIN_LEAGUE
+    )
     fx_home = fixture.get("home_name") or ""
     fx_away = fixture.get("away_name") or ""
+    fx_league = (fixture.get("league") or "").strip()
     if not fx_home or not fx_away:
         return []
 
     ranked: List[Tuple[float, Dict[str, Any]]] = []
     for row in scraped_rows:
+        sc_league = (row.get("league") or "").strip()
+        lg_sc = 0.0
+        if fx_league and sc_league:
+            lg_sc = league_match_score(fx_league, sc_league)
+            if lg_sc < league_floor:
+                continue
         h_sc, a_sc, flipped = _orientation_scores(
             fx_home, fx_away, row.get("home") or "", row.get("away") or ""
         )
@@ -123,14 +135,19 @@ def find_score_near_misses(
         avg = (h_sc + a_sc) / 2.0
         if avg < avg_floor:
             continue
-        # Prefer stronger name match; slight penalty if flipped
-        rank = avg - (2.0 if flipped else 0.0)
+        # Prefer stronger name match; slight penalty if flipped; boost same league
+        rank = avg - (2.0 if flipped else 0.0) + (LEAGUE_RANK_BOOST * lg_sc)
         fthg, ftag = int(row["fthg"]), int(row["ftag"])
         if flipped:
             fthg, ftag = ftag, fthg
             display_home, display_away = row.get("away"), row.get("home")
         else:
             display_home, display_away = row.get("home"), row.get("away")
+        reason = f"Name similarity {int(avg)}"
+        if flipped:
+            reason += " (teams flipped)"
+        if fx_league and sc_league:
+            reason += f" · league {int(round(lg_sc * 100))}"
         ranked.append(
             (
                 rank,
@@ -147,10 +164,8 @@ def find_score_near_misses(
                     "flipped": flipped,
                     "home_score": h_sc,
                     "away_score": a_sc,
-                    "reason": (
-                        f"Name similarity {int(avg)}"
-                        + (" (teams flipped)" if flipped else "")
-                    ),
+                    "league_score": lg_sc,
+                    "reason": reason,
                 },
             )
         )
