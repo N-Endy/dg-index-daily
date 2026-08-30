@@ -201,3 +201,19 @@ CREATE TABLE IF NOT EXISTS ingest_anomaly (
     detail TEXT,
     FOREIGN KEY (snapshot_id) REFERENCES dg_snapshot(id)
 );
+
+CREATE TABLE IF NOT EXISTS ai_pick (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    fixture_id INTEGER NOT NULL,
+    market_key TEXT NOT NULL,
+    lean TEXT,
+    score INTEGER NOT NULL,
+    reason TEXT,
+    model TEXT,
+    pick_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (day, fixture_id, market_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_pick_day ON ai_pick(day);

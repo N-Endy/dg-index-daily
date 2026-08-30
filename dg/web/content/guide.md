@@ -118,9 +118,17 @@ The **Strongest leans** page posts **at most one** outcome per fixture for the *
 
 Fixtures that fail the bar are **omitted**. Goal-model markets are preferred over style-only lines (corners / shots / cards) when both qualify. This still **does not eliminate risk** and is **not betting advice** — it is a stricter shortlist of the same rule-based leans.
 
+## AI Picks
+
+**AI Picks** takes today’s Strongest leans and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). The model scores each lean 0–100 and must **approve** it. Only leans with approve + score at or above the configured floor (default **70**) are published.
+
+- The AI may only use the fields we send (probability, confidence, DG/book agreement, drivers). It should **not** invent injuries or lineups.
+- No API key → the page explains setup; the daily job stays green.
+- AI notes are short plain English. The model can be **wrong** — treat this as a stricter filter, not a tip sheet.
+
 ## How to use this properly
 
-1. Open **Strongest leans** for today’s high-bar shortlist, or the **dashboard** for the full board (any date / league).
+1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the full board (any date / league).
 2. Optionally open **Market leans** in the sidebar to combine directions — for example BTTS Yes **and** SOT Over **and** Goals 2.5 Over. Use **Match all** (default) so every pick must hold, or **Match any** if one is enough.
 3. Raise **Min probability** / **Min confidence** to keep only stronger market leans. With no market picks selected, those floors apply to the main match-winner lean instead.
 4. Skim **high-confidence** leans first; treat low-confidence as noise.

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}AI Picks · DG Index Daily{% endblock %}
+{% block content %}
+
+<section class="page-intro rail-fade">
+  <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
+  <h1>AI Picks</h1>
+  <p class="lede">
+    Strongest leans that also cleared an LLM screen — only published when the model
+    approves with a high score. Still exploratory analytics, not betting advice.
+  </p>
+</section>
+
+{% if stale %}
+<div class="banner banner-warn" role="status">
+  Data looks <strong>stale</strong>
+  {% if staleness_hours %}(about {{ '%.0f'|format(staleness_hours) }} hours old){% endif %}.
+  Treat these cautiously until the next refresh.
+</div>
+{% endif %}
+
+{% if page_empty %}
+<div class="banner banner-info" role="status">
+  {{ message or "No AI picks yet." }}
+  {% if not has_openai_key %}
+  See <a href="/guide">How to read this</a> for setup notes.
+  {% else %}
+  Compare with <a href="/strongest">Strongest leans</a> for the full high-bar shortlist.
+  {% endif %}
+</div>
+{% else %}
+
+<div class="strongest-meta">
+  <p>
+    {{ n_picks }} AI-approved pick{% if n_picks != 1 %}s{% endif %} for {{ day }}
+    (screen score ≥ {{ ai_min_score }}).
+    <a href="/strongest">Strongest leans</a>
+    ·
+    <a href="/?date={{ day }}">Full dashboard</a>
+  </p>
+</div>
+
+<div class="strip-list strongest-list">
+  {% for p in picks %}
+  <article class="fixture-strip conf-{{ p.confidence or 'high' }} strip-enter strongest-card" style="--i: {{ loop.index0 }}">
+    <div class="strip-edge" aria-hidden="true"></div>
+    <div class="strip-body">
+      <div class="strip-meta">
+        <span class="league">{{ p.league or "—" }}</span>
+        <span class="kickoff">{{ p.kickoff_display }}</span>
+        {% if p.ai_score is not none %}
+        <span class="ft-score" title="AI screen score">AI {{ p.ai_score }}</span>
+        {% endif %}
+        {% if p.completed and p.ft_score %}
+        <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
+        {% elif p.awaiting_score %}
+        <span class="ft-awaiting" title="Result not synced yet">Awaiting score</span>
+        {% endif %}
+        <span class="agree agree-{{ p.agreement_key or 'unknown' }}">{{ p.agreement_label or "—" }}</span>
+      </div>
+
+      <div class="strip-main">
+        <h3 class="matchup">
+          <span class="team home">{{ p.home_name }}</span>
+          <span class="vs">vs</span>
+          <span class="team away">{{ p.away_name }}</span>
+        </h3>
+        <div class="lean-block lean-settle">
+          <p class="featured-market">{{ p.market_label or p.market_key }}</p>
+          <p class="lean">{{ p.lean_plain or p.lean }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}
+            {% if p.lean_result_key == 'hit' or p.lean_result_key == 'miss' %}
+            <span class="lean-result lean-{{ p.lean_result_key }}">{{ p.lean_result_label }}</span>
+            {% endif %}
+          </p>
+          <p class="conf">{{ p.confidence_blurb or p.confidence }}</p>
+        </div>
+      </div>
+
+      {% if p.ai_reason %}
+      <p class="strength"><strong>AI note:</strong> {{ p.ai_reason }}</p>
+      {% endif %}
+
+      {% if p.strength_label %}
+      <p class="strength">{{ p.strength_label }}</p>
+      {% endif %}
+
+      <ul class="baselines">
+        {% if p.dg_lean %}<li>DG model: {{ p.dg_lean }}</li>{% endif %}
+        {% if p.book_lean %}<li>Book: {{ p.book_lean }}</li>{% endif %}
+      </ul>
+
+      {% if p.why %}
+      <div class="why">
+        <h4>Why (model)</h4>
+        <ul>
+          {% for w in p.why[:4] %}
+          <li>{{ w }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+
+{% endif %}
+
+{% endblock %}

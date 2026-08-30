@@ -102,6 +102,9 @@ def test_dashboard_renders_fixture(web_client):
     # Completed fixture shows FT score from match_result
     assert "Final 2–1" in r.text
     assert "Lean hit" in r.text or "Lean miss" in r.text
+    # DG update + kickoff shown in Nigerian WAT, not raw ISO
+    assert "WAT" in r.text
+    assert "T05:13:36" not in r.text
 
 
 def test_dashboard_awaiting_score_chip(web_client):
@@ -122,6 +125,7 @@ def test_guide_renders(web_client):
     assert "Markets" in r.text or "BTTS" in r.text
     assert "DG Rating" in r.text or "DGRtg" in r.text
     assert "Strongest leans" in r.text
+    assert "AI Picks" in r.text
 
 
 def test_strongest_page_renders(web_client):
@@ -130,6 +134,59 @@ def test_strongest_page_renders(web_client):
     assert "Strongest leans" in r.text
     assert "cleared the bar" in r.text or "No fixtures today cleared" in r.text or "No data" in r.text
     assert 'href="/strongest"' in r.text or "aria-current" in r.text
+
+
+def test_ai_picks_page_renders_without_key(web_client, monkeypatch):
+    from dg import config
+
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    r = web_client.get("/ai-picks")
+    assert r.status_code == 200
+    assert "AI Picks" in r.text
+    assert "OPENAI_API_KEY" in r.text or "No AI picks" in r.text or "AI bar" in r.text
+    assert 'href="/ai-picks"' in r.text
+
+
+def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
+    from dg import config
+    from dg.ai.vet_strongest import replace_ai_picks_for_day
+    from dg.report.best_leans import today_utc
+    from dg.storage.db import connect, init_db
+
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "present")
+    conn = init_db(connect(config.DB_PATH))
+    day = today_utc()
+    replace_ai_picks_for_day(
+        conn,
+        day,
+        [
+            {
+                "fixture_id": 1,
+                "market_key": "match_1x2",
+                "market_label": "Match winner",
+                "lean": "Home",
+                "lean_plain": "Favours Home",
+                "confidence": "high",
+                "confidence_blurb": "High confidence",
+                "league": "Test League",
+                "home_name": "Alpha",
+                "away_name": "Beta",
+                "kickoff_display": "Sun 30 Aug · 16:00 WAT",
+                "agreement_key": "aligned",
+                "agreement_label": "Aligned",
+                "ai_score": 88,
+                "ai_reason": "Clear home edge on the sheet.",
+                "why": ["rating gap"],
+            }
+        ],
+        model="test",
+    )
+    conn.close()
+    r = web_client.get("/ai-picks")
+    assert r.status_code == 200
+    assert "Alpha" in r.text and "Beta" in r.text
+    assert "AI 88" in r.text
+    assert "Clear home edge" in r.text
 
 
 def test_dashboard_empty_db(tmp_path, monkeypatch):

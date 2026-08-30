@@ -150,6 +150,13 @@ FLASHSCORE_COOLDOWN_SEC = float(os.environ.get("FLASHSCORE_COOLDOWN_SEC", "600")
 FLASHSCORE_TIMEOUT_SEC = float(os.environ.get("FLASHSCORE_TIMEOUT_SEC", "45"))
 FLASHSCORE_NAME_MATCH_MIN = int(os.environ.get("FLASHSCORE_NAME_MATCH_MIN", "80"))
 
+# OpenAI-compatible LLM for AI Picks (MatchPredictor Luna screen pattern)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
+AI_VET_MIN_SCORE = int(os.environ.get("AI_VET_MIN_SCORE", "70"))
+AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "60"))
+
 # Exit codes
 EXIT_OK = 0
 EXIT_PARTIAL = 1

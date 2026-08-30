@@ -21,7 +21,7 @@ Short version:
 |--------|---------|
 | Build | `Dockerfile` |
 | Volume | Mount at `/data` on the **web** service only |
-| Env | `DATA_DIR=/data`; optional `API_FOOTBALL_KEY` (leftover scores only) |
+| Env | `DATA_DIR=/data`; optional `OPENAI_API_KEY` (AI Picks); optional `API_FOOTBALL_KEY` (leftover scores) |
 | Start | `sh /app/deploy/start.sh` (uvicorn + daily pipeline in one container) |
 | Schedule | Built-in: runs at **08:00 UTC** (`CRON_HOUR_UTC`) — no second cron service |
 
@@ -47,6 +47,7 @@ Open http://127.0.0.1:8787
 .venv/bin/python run_daily.py
 .venv/bin/python -m dg.cli backfill-results --season 2627
 .venv/bin/python -m dg.cli sync-scores   # Flashscore.mobi (needs playwright chromium locally)
+.venv/bin/python -m dg.cli vet-ai-picks  # LLM screen of Strongest → AI Picks (needs OPENAI_API_KEY)
 .venv/bin/python -m dg.cli backtest
 ```
 

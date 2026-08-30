@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from dg.report.ai_picks import load_ai_picks_page
 from dg.report.best_leans import load_strongest_day
 from dg.report.loaders import (
     enrich_prediction_for_display,
@@ -89,6 +90,16 @@ def strongest(request: Request):
     return TEMPLATES.TemplateResponse(
         request,
         "strongest.html",
+        ctx,
+    )
+
+
+@app.get("/ai-picks", response_class=HTMLResponse)
+def ai_picks(request: Request):
+    ctx = load_ai_picks_page()
+    return TEMPLATES.TemplateResponse(
+        request,
+        "ai_picks.html",
         ctx,
     )
 

@@ -35,9 +35,14 @@ CRON_HOUR_UTC=8          # daily run hour (UTC); default 8
 RUN_DAILY_ON_START=1     # run pipeline once on boot (default 1); set 0 to skip
 FD_SEASON=2627           # football-data.co.uk season for daily results backfill
 API_FOOTBALL_KEY=...     # optional; leftovers only — unset if the account is suspended
+OPENAI_API_KEY=...       # optional; enables AI Picks (LLM screen of Strongest leans)
+OPENAI_MODEL=gpt-5.6-luna  # optional; default gpt-5.6-luna
+AI_VET_MIN_SCORE=70      # optional; approve floor for AI Picks
 ```
 
 **Final scores:** the daily job scrapes **flashscore.mobi** (Playwright/Chromium in the image) via `sync-scores`, then falls back to football-data.co.uk. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
+
+**AI Picks:** after predictions, `vet-ai-picks` screens Strongest leans via an OpenAI-compatible API. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup.
 
 ### 3. Start command
 

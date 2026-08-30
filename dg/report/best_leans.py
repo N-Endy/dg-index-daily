@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from dg.model.markets import MARKET_ORDER
-from dg.report.loaders import enrich_prediction_for_display, load_dashboard_context
+from dg.report.loaders import (
+    _fixture_sort_key,
+    enrich_prediction_for_display,
+    load_dashboard_context,
+)
 from dg.web.plain_language import (
     agreement_hint,
     confidence_blurb,
@@ -311,6 +315,7 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
     ctx = load_dashboard_context(date_filter=day)
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
     picks = build_strongest_picks(enriched)
+    picks.sort(key=_fixture_sort_key)
     return {
         **ctx,
         "day": day,

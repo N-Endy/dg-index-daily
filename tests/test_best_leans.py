@@ -15,7 +15,7 @@ def _base_pred(**overrides):
         "away_name": "Away FC",
         "league": "EPL",
         "date_utc": "2026-08-30T15:00:00+00:00",
-        "kickoff_display": "Sun 30 Aug · 15:00 UTC",
+        "kickoff_display": "Sun 30 Aug · 16:00 WAT",
         "lean": "Home",
         "confidence": "medium",
         "score": 0.2,

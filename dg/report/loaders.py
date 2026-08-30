@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 from dg import config
 from dg.model.markets import MARKET_ORDER, MARKET_SIDES
@@ -17,6 +18,7 @@ from dg.report.results_attach import (
 from dg.storage.db import connect, init_db, latest_snapshot
 
 _CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+DISPLAY_TZ = ZoneInfo("Africa/Lagos")  # WAT (UTC+1, no DST)
 
 
 def get_connection():
@@ -181,6 +183,7 @@ def load_dashboard_context(
         "empty": True,
         "message": "No data yet. The daily refresh has not run.",
         "generated_at": None,
+        "generated_at_display": "—",
         "staleness_hours": None,
         "stale": False,
         "status": "empty",
@@ -312,6 +315,7 @@ def load_dashboard_context(
             "empty": False,
             "message": None,
             "generated_at": generated_at,
+            "generated_at_display": format_generated_at(generated_at),
             "staleness_hours": age,
             "stale": stale,
             "status": status,
@@ -450,26 +454,48 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _kickoff_in_past(date_utc: Optional[str]) -> bool:
+def _parse_utc(date_utc: Optional[str]) -> Optional[datetime]:
     if not date_utc:
-        return False
+        return None
     try:
-        kickoff = datetime.fromisoformat(date_utc.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(date_utc.replace("Z", "+00:00"))
     except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _to_wat(dt: datetime) -> datetime:
+    return dt.astimezone(DISPLAY_TZ)
+
+
+def _kickoff_in_past(date_utc: Optional[str]) -> bool:
+    kickoff = _parse_utc(date_utc)
+    if kickoff is None:
         return False
-    if kickoff.tzinfo is None:
-        kickoff = kickoff.replace(tzinfo=timezone.utc)
     return kickoff <= datetime.now(timezone.utc)
 
 
 def _format_kickoff(date_utc: Optional[str]) -> str:
-    if not date_utc:
-        return "—"
-    try:
-        dt = datetime.fromisoformat(date_utc.replace("Z", "+00:00"))
-        return dt.strftime("%a %d %b · %H:%M UTC")
-    except ValueError:
-        return date_utc
+    dt = _parse_utc(date_utc)
+    if dt is None:
+        return date_utc or "—"
+    local = _to_wat(dt)
+    return local.strftime("%a %d %b · %H:%M WAT")
+
+
+def format_generated_at(generated_at: Optional[str]) -> str:
+    """Human-readable DG snapshot time in Nigerian (WAT) time."""
+    dt = _parse_utc(generated_at)
+    if dt is None:
+        return generated_at or "—"
+    local = _to_wat(dt)
+    return local.strftime("%a %d %b %Y · %H:%M WAT")
+
+
+def _fixture_sort_key(pred: Dict[str, Any]) -> Tuple[str, str]:
+    return ((pred.get("league") or "").lower(), pred.get("date_utc") or "")
 
 
 def group_predictions_by_date(
@@ -479,4 +505,8 @@ def group_predictions_by_date(
     for p in predictions:
         day = (p.get("date_utc") or "")[:10] or "unknown"
         by_day.setdefault(day, []).append(p)
-    return [(d, by_day[d]) for d in sorted(by_day)]
+    out: List[Tuple[str, List[Dict[str, Any]]]] = []
+    for d in sorted(by_day):
+        items = sorted(by_day[d], key=_fixture_sort_key)
+        out.append((d, items))
+    return out

@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from dg import config
-from dg.ingest.fixtures import ingest_fixtures
+from dg.ai.vet_strongest import vet_strongest_for_day
 from dg.ingest.fixture_scores import sync_fixture_scores
+from dg.ingest.fixtures import ingest_fixtures
 from dg.ingest.ratings import ingest_ratings, team_ids_for_snapshot
 from dg.ingest.results import backfill_results
 from dg.model.evaluate import evaluate_joined
@@ -18,6 +19,7 @@ from dg.model.rules import predict_upcoming
 from dg.model.supervised import train_if_ready
 from dg.quality.checks import QualityReport, run_quality_checks
 from dg.quality.doctor import run_doctor
+from dg.report.best_leans import today_utc
 from dg.report.render import render_report, write_report
 from dg.sources import datagaffer as dg_src
 from dg.storage.db import db_session, init_db, latest_snapshot, snapshot_exists
@@ -314,6 +316,24 @@ def cmd_sync_scores(args: argparse.Namespace) -> int:
             return config.EXIT_CRITICAL
 
 
+def cmd_vet_ai_picks(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    day = (args.day or "").strip() or today_utc()
+    with db_session() as conn:
+        try:
+            summary = vet_strongest_for_day(conn, day=day)
+            logger.info("Vet AI picks: %s", summary)
+            if summary.get("skipped_no_key"):
+                return config.EXIT_OK
+            if summary.get("errors"):
+                return config.EXIT_PARTIAL
+            return config.EXIT_OK
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Vet AI picks failed: %s", exc)
+            return config.EXIT_CRITICAL
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     setup_logging(args.verbose)
     init_db()
@@ -371,6 +391,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pull finished FT scores (Flashscore.mobi; optional API-Football leftovers)",
     )
     ss.set_defaults(func=cmd_sync_scores)
+
+    vet = sub.add_parser(
+        "vet-ai-picks",
+        help="LLM-screen Strongest leans and persist AI Picks for the day",
+    )
+    vet.add_argument("--day", default=None, help="UTC date YYYY-MM-DD (default: today)")
+    vet.set_defaults(func=cmd_vet_ai_picks)
 
     bt = sub.add_parser("backtest", help="Score predictions vs results")
     bt.set_defaults(func=cmd_backtest)
