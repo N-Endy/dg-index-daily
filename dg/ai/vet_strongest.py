@@ -232,6 +232,11 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _chunked(items: List[Any], size: int) -> List[List[Any]]:
+    n = max(1, int(size))
+    return [items[i : i + n] for i in range(0, len(items), n)]
+
+
 def vet_strongest_for_day(
     conn,
     *,
@@ -250,6 +255,7 @@ def vet_strongest_for_day(
         "day": day_key,
         "model": model,
         "n_candidates": 0,
+        "n_batches": 0,
         "n_approved": 0,
         "written": 0,
         "skipped_no_key": False,
@@ -274,24 +280,44 @@ def vet_strongest_for_day(
         summary["message"] = "No strongest picks to vet"
         return summary
 
-    payload = {
-        "day": day_key,
-        "minScoreHint": config.AI_VET_MIN_SCORE,
-        "candidates": [candidate_payload(p) for p in candidates],
-    }
-    user = (
-        f"Score these {len(candidates)} Strongest-lean candidates for {day_key}. "
-        f"Be selective; approve only those you are confident publishing.\n"
-        f"{json.dumps(payload, ensure_ascii=False)}"
-    )
+    batches = _chunked(candidates, config.AI_VET_BATCH_SIZE)
+    summary["n_batches"] = len(batches)
+    all_scores: List[Dict[str, Any]] = []
 
     try:
-        if chat_fn is not None:
-            raw = chat_fn(SYSTEM_PROMPT, user)
-        else:
-            raw = chat_json(system=SYSTEM_PROMPT, user=user, max_tokens=2000)
-        scores = parse_screen_response(raw)
-        approved = gate_screen_scores(candidates, scores)
+        for bi, batch in enumerate(batches, start=1):
+            payload = {
+                "day": day_key,
+                "batch": bi,
+                "batchCount": len(batches),
+                "minScoreHint": config.AI_VET_MIN_SCORE,
+                "candidates": [candidate_payload(p) for p in batch],
+            }
+            user = (
+                f"Score these {len(batch)} Strongest-lean candidates for {day_key} "
+                f"(batch {bi}/{len(batches)}). "
+                f"Be selective; approve only those you are confident publishing.\n"
+                f"{json.dumps(payload, ensure_ascii=False)}"
+            )
+            if chat_fn is not None:
+                raw = chat_fn(SYSTEM_PROMPT, user)
+            else:
+                raw = chat_json(
+                    system=SYSTEM_PROMPT,
+                    user=user,
+                    max_tokens=config.AI_VET_MAX_TOKENS,
+                )
+            batch_scores = parse_screen_response(raw)
+            logger.info(
+                "AI vet batch %s/%s: %s scores from %s candidates",
+                bi,
+                len(batches),
+                len(batch_scores),
+                len(batch),
+            )
+            all_scores.extend(batch_scores)
+
+        approved = gate_screen_scores(candidates, all_scores)
         written = replace_ai_picks_for_day(conn, day_key, approved, model=model)
         summary["n_approved"] = len(approved)
         summary["written"] = written

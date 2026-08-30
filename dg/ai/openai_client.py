@@ -15,6 +15,32 @@ class OpenAIError(RuntimeError):
     """API or transport failure talking to the LLM provider."""
 
 
+def _extract_message_content(message: Dict[str, Any]) -> str:
+    """Pull text from string content or GPT-style content part arrays."""
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for part in content:
+            if isinstance(part, str) and part.strip():
+                parts.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            for key in ("text", "output_text", "content"):
+                val = part.get(key)
+                if isinstance(val, str) and val.strip():
+                    parts.append(val)
+                    break
+        if parts:
+            return "\n".join(parts)
+    refusal = message.get("refusal")
+    if isinstance(refusal, str) and refusal.strip():
+        return refusal
+    return ""
+
+
 def chat_json(
     *,
     system: str,
@@ -43,6 +69,9 @@ def chat_json(
         "max_completion_tokens": int(max_tokens),
         "response_format": {"type": "json_object"},
     }
+    effort = (config.OPENAI_REASONING_EFFORT or "").strip()
+    if effort:
+        payload["reasoning_effort"] = effort
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
@@ -66,8 +95,17 @@ def chat_json(
     choices: List[Any] = data.get("choices") or []
     if not choices:
         raise OpenAIError("OpenAI response had no choices")
-    message = choices[0].get("message") or {}
-    content = message.get("content")
-    if not content or not str(content).strip():
-        raise OpenAIError("OpenAI response had empty content")
-    return str(content)
+    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+    message = choice0.get("message") or {}
+    if not isinstance(message, dict):
+        message = {}
+    content = _extract_message_content(message)
+    if not content.strip():
+        finish = choice0.get("finish_reason")
+        usage = data.get("usage") or {}
+        raise OpenAIError(
+            "OpenAI response had empty content "
+            f"(finish_reason={finish!r}, usage={usage}). "
+            "Try raising AI_VET_MAX_TOKENS or lowering OPENAI_REASONING_EFFORT."
+        )
+    return content

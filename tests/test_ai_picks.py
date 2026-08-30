@@ -17,6 +17,7 @@ def test_chat_json_sends_max_completion_tokens(monkeypatch):
     from dg.ai import openai_client as oc
 
     monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "OPENAI_REASONING_EFFORT", "low")
     captured = {}
 
     class _Resp:
@@ -48,6 +49,80 @@ def test_chat_json_sends_max_completion_tokens(monkeypatch):
     assert "max_completion_tokens" in body
     assert body["max_completion_tokens"] == 1500
     assert "max_tokens" not in body
+    assert body.get("reasoning_effort") == "low"
+
+
+def test_extract_message_content_from_parts():
+    from dg.ai.openai_client import _extract_message_content
+
+    assert (
+        _extract_message_content(
+            {"content": [{"type": "output_text", "text": '{"scores":[]}'}]}
+        )
+        == '{"scores":[]}'
+    )
+
+
+def test_vet_batches_candidates(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_BATCH_SIZE", 2)
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    config.ensure_dirs()
+
+    picks = [
+        {
+            "fixture_id": i,
+            "market_key": "match_1x2",
+            "lean": "Home",
+            "league": "L",
+            "home_name": f"H{i}",
+            "away_name": f"A{i}",
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        }
+        for i in range(1, 5)
+    ]
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {"day": "2026-08-30", "picks": picks, "empty": False},
+    )
+    calls = {"n": 0}
+
+    def fake_chat(system, user):
+        calls["n"] += 1
+        # Approve first of each batch by parsing is hard; return both for simplicity
+        return json.dumps(
+            {
+                "scores": [
+                    {
+                        "fixtureId": 1 if calls["n"] == 1 else 3,
+                        "marketKey": "match_1x2",
+                        "score": 80,
+                        "approve": True,
+                        "reason": "ok",
+                    },
+                    {
+                        "fixtureId": 2 if calls["n"] == 1 else 4,
+                        "marketKey": "match_1x2",
+                        "score": 80,
+                        "approve": True,
+                        "reason": "ok",
+                    },
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert calls["n"] == 2
+    assert summary["n_batches"] == 2
+    assert summary["written"] == 4
+    conn.close()
 
 
 def test_parse_screen_response_resilient_keys():

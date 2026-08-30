@@ -154,8 +154,12 @@ FLASHSCORE_NAME_MATCH_MIN = int(os.environ.get("FLASHSCORE_NAME_MATCH_MIN", "80"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
+# Luna/GPT-5 reasoning can burn completion budget; keep effort low for JSON screens.
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low").strip()
 AI_VET_MIN_SCORE = int(os.environ.get("AI_VET_MIN_SCORE", "70"))
-AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "60"))
+AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "120"))
+AI_VET_MAX_TOKENS = int(os.environ.get("AI_VET_MAX_TOKENS", "16000"))
+AI_VET_BATCH_SIZE = int(os.environ.get("AI_VET_BATCH_SIZE", "20"))
 
 # Exit codes
 EXIT_OK = 0
