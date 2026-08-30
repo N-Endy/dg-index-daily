@@ -41,6 +41,9 @@
       <div class="strip-meta">
         <span class="league">{{ p.league or "—" }}</span>
         <span class="kickoff">{{ p.kickoff_display }}</span>
+        {% if p.completed and p.ft_score %}
+        <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
+        {% endif %}
         <span class="agree agree-{{ p.agreement_key }}">{{ p.agreement_label }}</span>
       </div>
 
@@ -52,7 +55,11 @@
         </h3>
         <div class="lean-block lean-settle">
           <p class="featured-market">{{ p.market_label }}</p>
-          <p class="lean">{{ p.lean_plain }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}</p>
+          <p class="lean">{{ p.lean_plain }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}
+            {% if p.lean_result_key == 'hit' or p.lean_result_key == 'miss' %}
+            <span class="lean-result lean-{{ p.lean_result_key }}">{{ p.lean_result_label }}</span>
+            {% endif %}
+          </p>
           <p class="conf">{{ p.confidence_blurb }}</p>
         </div>
       </div>

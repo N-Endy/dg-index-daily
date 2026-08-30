@@ -42,6 +42,16 @@ How the game might *feel*, not who wins:
 
 When **Our lean**, **DG model**, and **the book** agree, that is more interesting than when they disagree. Disagreement is normal — it means models and markets see different things.
 
+### Final scores (completed matches)
+
+After a match has finished and football-data.co.uk has published the result (pulled on the **daily refresh**), the board shows:
+
+- **Final** scoreline next to kickoff (e.g. Final 2–1)
+- **Lean hit / Lean miss** on the match-winner lean
+- **Hit / Miss** on market chips when that market can be labelled from the result (goals, BTTS, etc.)
+
+If a fixture is past kickoff but still has no score, the result has not landed in the database yet — check again after the next daily refresh.
+
 ### Why (key drivers)
 
 Short plain-English reasons pulled from the biggest contributors to the score — for example “One side has a clear DG Rating strength advantage.”

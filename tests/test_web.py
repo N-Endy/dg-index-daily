@@ -44,6 +44,28 @@ def web_client(tmp_path, monkeypatch):
     ingest_fixtures(conn, fixtures, snapshot_id=sid, known_team_ids=known)
     fx = dict(conn.execute("SELECT * FROM fixture LIMIT 1").fetchone())
     predict_fixture(conn, fx, sid)
+    # Attach a completed FT result for the sample fixture so the dashboard can show it
+    conn.execute(
+        """
+        INSERT INTO match_result (
+            source, season, league_code, date, home_name, away_name,
+            home_team_id, away_team_id, fthg, ftag, ftr
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "football-data.co.uk",
+            "2627",
+            "D2",
+            "29/08/2026",
+            fx["home_name"],
+            fx["away_name"],
+            fx["home_id"],
+            fx["away_id"],
+            2,
+            1,
+            "H",
+        ),
+    )
     conn.commit()
     conn.close()
 
@@ -77,6 +99,9 @@ def test_dashboard_renders_fixture(web_client):
     assert "Goals 2.5" in r.text or "BTTS" in r.text
     # Strength line and/or percentage from DG Rating integration
     assert "edge" in r.text.lower() or "%" in r.text or "matched" in r.text.lower() or "Favours" in r.text
+    # Completed fixture shows FT score from match_result
+    assert "Final 2–1" in r.text
+    assert "Lean hit" in r.text or "Lean miss" in r.text
 
 
 def test_guide_renders(web_client):

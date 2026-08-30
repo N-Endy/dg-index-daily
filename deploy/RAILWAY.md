@@ -33,7 +33,7 @@ Optional variables:
 ```
 CRON_HOUR_UTC=8          # daily run hour (UTC); default 8
 RUN_DAILY_ON_START=1     # run pipeline once on boot (default 1); set 0 to skip
-FD_SEASON=2627           # football-data.co.uk season for Sunday backfill
+FD_SEASON=2627           # football-data.co.uk season for daily results backfill
 ```
 
 ### 3. Start command
@@ -66,7 +66,7 @@ To run manually from **web → Shell**:
 python run_daily.py
 ```
 
-Or the full Sunday-aware wrapper:
+Or the full daily wrapper (pipeline + results backfill):
 
 ```
 sh deploy/cron_daily.sh

@@ -261,9 +261,33 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "kickoff_display": pred.get("kickoff_display") or "",
         "strength_label": pred.get("strength_label"),
         "style_label": pred.get("style_label"),
+        "completed": bool(pred.get("completed")),
+        "ft_score": pred.get("ft_score"),
+        "ft_home": pred.get("ft_home"),
+        "ft_away": pred.get("ft_away"),
+        "ftr": pred.get("ftr"),
         **{k: v for k, v in best.items() if k != "_rank"},
         "_rank": best["_rank"],
     }
+    # Featured lean hit/miss when the fixture is completed
+    if out["completed"]:
+        from dg.report.results_attach import lean_result, market_lean_result
+        from dg.model.evaluate import _market_labels
+
+        if best["market_key"] == "match_1x2":
+            rk, rl = lean_result(best.get("lean"), pred.get("ftr"))
+        else:
+            labels = {}
+            if pred.get("result_row"):
+                labels = _market_labels(pred["result_row"])
+            rk, rl = market_lean_result(best.get("lean"), labels.get(best["market_key"]))
+        out["lean_result_key"] = rk
+        out["lean_result_label"] = rl if rk == "pending" else (
+            "Lean hit" if rk == "hit" else "Lean miss"
+        )
+    else:
+        out["lean_result_key"] = "pending"
+        out["lean_result_label"] = ""
     return out
 
 

@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dg import config
 from dg.model.markets import MARKET_ORDER, MARKET_SIDES
 from dg.quality.checks import staleness_hours
+from dg.report.results_attach import (
+    attach_result_to_prediction,
+    lean_result,
+    load_result_index,
+    market_lean_result,
+)
 from dg.storage.db import connect, init_db, latest_snapshot
 
 _CONF_RANK = {"low": 0, "medium": 1, "high": 2}
@@ -219,6 +225,8 @@ def load_dashboard_context(
             """
         ).fetchall()
 
+        result_index = load_result_index(conn)
+
         predictions: List[Dict[str, Any]] = []
         dates: set = set()
         leagues: set = set()
@@ -291,6 +299,8 @@ def load_dashboard_context(
             else:
                 d.setdefault("dg_sim_lean", None)
                 d.setdefault("book_lean", None)
+
+            attach_result_to_prediction(d, result_index)
             predictions.append(d)
 
         mv_row = conn.execute(
@@ -395,10 +405,17 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
     from dg.web.plain_language import market_chip_label, market_lean_plain
 
     chips = []
+    market_labels: Dict[str, Any] = {}
+    if pred.get("completed") and pred.get("result_row"):
+        from dg.model.evaluate import _market_labels
+
+        market_labels = _market_labels(pred["result_row"])
+
     for key in MARKET_ORDER:
         m = markets.get(key)
         if not isinstance(m, dict):
             continue
+        r_key, r_label = market_lean_result(m.get("lean"), market_labels.get(key))
         chips.append(
             {
                 **m,
@@ -406,10 +423,28 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
                 "chip_label": market_chip_label(key, m.get("label")),
                 "confidence_key": (m.get("confidence") or "low").lower(),
                 "prob_plain": probability_plain(m.get("prob")),
+                "result_key": r_key,
+                "result_label": r_label,
+                "actual_label": market_labels.get(key),
             }
         )
     out["market_chips"] = chips
     out["markets"] = markets
+
+    # FT score + match-winner lean outcome
+    out["completed"] = bool(pred.get("completed"))
+    out["ft_score"] = pred.get("ft_score")
+    out["ft_home"] = pred.get("ft_home")
+    out["ft_away"] = pred.get("ft_away")
+    out["ftr"] = pred.get("ftr")
+    if out["completed"]:
+        lr_key, lr_label = lean_result(pred.get("lean"), pred.get("ftr"))
+        out["lean_result_key"] = lr_key
+        out["lean_result_label"] = lr_label
+    else:
+        out["lean_result_key"] = "pending"
+        out["lean_result_label"] = ""
+
     return out
 
 

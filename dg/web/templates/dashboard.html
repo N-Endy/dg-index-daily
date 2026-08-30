@@ -156,6 +156,9 @@
             <div class="strip-meta">
               <span class="league">{{ p.league or "—" }}</span>
               <span class="kickoff">{{ p.kickoff_display }}</span>
+              {% if p.completed and p.ft_score %}
+              <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
+              {% endif %}
               <span class="agree agree-{{ p.agreement_key }}">{{ p.agreement_label }}</span>
             </div>
 
@@ -166,7 +169,11 @@
                 <span class="team away">{{ p.away_name }}</span>
               </h3>
               <div class="lean-block lean-settle">
-                <p class="lean">{{ p.lean_label }}{% if p.lean_prob_plain %} <span class="lean-prob">{{ p.lean_prob_plain }}</span>{% endif %}</p>
+                <p class="lean">{{ p.lean_label }}{% if p.lean_prob_plain %} <span class="lean-prob">{{ p.lean_prob_plain }}</span>{% endif %}
+                  {% if p.lean_result_key == 'hit' or p.lean_result_key == 'miss' %}
+                  <span class="lean-result lean-{{ p.lean_result_key }}">{{ p.lean_result_label }}</span>
+                  {% endif %}
+                </p>
                 <p class="conf">{{ p.confidence_blurb }}</p>
               </div>
             </div>
@@ -187,10 +194,13 @@
               <h4>Markets</h4>
               <div class="market-chips">
                 {% for m in p.market_chips %}
-                <span class="market-chip conf-{{ m.confidence_key }}" title="{{ m.confidence }} · {{ (m.drivers or [])|join('; ') }}">
+                <span class="market-chip conf-{{ m.confidence_key }}{% if m.result_key == 'hit' or m.result_key == 'miss' %} result-{{ m.result_key }}{% endif %}" title="{{ m.confidence }} · {{ (m.drivers or [])|join('; ') }}{% if m.result_label %} · {{ m.result_label }}{% endif %}">
                   <span class="m-label">{{ m.chip_label }}</span>
                   <span class="m-lean">{{ m.lean_plain }}</span>
                   {% if m.prob_plain %}<span class="m-prob">{{ m.prob_plain }}</span>{% endif %}
+                  {% if m.result_key == 'hit' or m.result_key == 'miss' %}
+                  <span class="m-result">{{ m.result_label }}</span>
+                  {% endif %}
                 </span>
                 {% endfor %}
               </div>

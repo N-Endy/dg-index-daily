@@ -531,6 +531,63 @@ nav a[aria-current="page"] {
   background: #f8e4e4;
 }
 
+.ft-score {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.lean-result {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.08rem 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  border: 1.5px solid var(--line);
+}
+
+.lean-hit {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+.lean-miss {
+  border-color: var(--split);
+  color: var(--split);
+  background: #f8e4e4;
+}
+
+.market-chip.result-hit {
+  border-color: var(--accent);
+}
+
+.market-chip.result-miss {
+  border-color: var(--split);
+  opacity: 0.85;
+}
+
+.market-chip .m-result {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.market-chip.result-hit .m-result {
+  color: var(--accent-ink);
+}
+
+.market-chip.result-miss .m-result {
+  color: var(--split);
+}
+
 .strongest-meta {
   margin: 0 0 var(--space-4);
   font-size: 0.95rem;
