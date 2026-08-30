@@ -451,6 +451,7 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
         out["lean_result_label"] = ""
         out["awaiting_score"] = _kickoff_in_past(pred.get("date_utc"))
 
+    out.setdefault("score_hint_candidates", [])
     return out
 
 

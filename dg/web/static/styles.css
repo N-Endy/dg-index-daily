@@ -548,6 +548,99 @@ nav a[aria-current="page"] {
   padding: 0.1rem 0.4rem;
 }
 
+.dg-score-near-miss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  margin-left: 0.25rem;
+  padding: 0 0.35rem;
+  border: 1px solid #c45c26;
+  border-radius: 2px;
+  background: #fff6f0;
+  color: #c45c26;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.dg-score-near-miss:hover {
+  background: #c45c26;
+  color: #fff;
+}
+
+.dg-score-confirm-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(20, 18, 16, 0.45);
+}
+.dg-score-confirm-dialog[hidden] {
+  display: none !important;
+}
+.dg-score-confirm-panel {
+  position: relative;
+  width: min(32rem, 100%);
+  max-height: min(80vh, 36rem);
+  overflow: auto;
+  padding: 1.25rem 1.35rem 1.5rem;
+  background: var(--paper, #f7f3ec);
+  border: 1px solid var(--line, #d9d0c3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+.dg-score-confirm-panel h3 {
+  margin: 0 1.5rem 0.35rem 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+.dg-score-confirm-fixture {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.dg-score-confirm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.dg-score-confirm-pick {
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line, #d9d0c3);
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.dg-score-confirm-pick:hover {
+  border-color: #c45c26;
+  background: #fff6f0;
+}
+.dg-score-confirm-close {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.65rem;
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+}
+.dg-score-confirm-status {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .lean-result {
   display: inline-block;
   margin-left: 0.4rem;

@@ -189,6 +189,52 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     assert "Clear home edge" in r.text
 
 
+def test_score_link_confirm_requires_secret(web_client, monkeypatch):
+    from dg import config
+
+    monkeypatch.setattr(config, "SCORE_LINK_SECRET", "")
+    r = web_client.post(
+        "/api/score-link/confirm",
+        json={"fixture_id": 1, "flashscore_row_id": 1},
+    )
+    assert r.status_code == 403
+
+
+def test_score_link_confirm_with_header(web_client, monkeypatch):
+    from dg import config
+    from dg.report.score_hints import persist_flashscore_rows
+    from dg.storage.db import connect, init_db
+
+    monkeypatch.setattr(config, "SCORE_LINK_SECRET", "test-secret")
+    conn = init_db(connect(config.DB_PATH))
+    fx = conn.execute("SELECT fixture_id, home_name, away_name FROM fixture LIMIT 1").fetchone()
+    assert fx is not None
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "home": fx["home_name"],
+                "away": fx["away_name"],
+                "fthg": 1,
+                "ftag": 0,
+                "league": "Test",
+            }
+        ],
+    )
+    conn.commit()
+    rid = int(conn.execute("SELECT id FROM flashscore_row ORDER BY id DESC LIMIT 1").fetchone()["id"])
+    conn.close()
+
+    r = web_client.post(
+        "/api/score-link/confirm",
+        json={"fixture_id": int(fx["fixture_id"]), "flashscore_row_id": rid},
+        headers={"X-Score-Link-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert r.json().get("ft_score") == "1–0"
+
+
 def test_dashboard_empty_db(tmp_path, monkeypatch):
     from dg import config
 

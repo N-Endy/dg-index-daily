@@ -149,6 +149,11 @@ FLASHSCORE_URL = os.environ.get("FLASHSCORE_URL", "https://www.flashscore.mobi")
 FLASHSCORE_COOLDOWN_SEC = float(os.environ.get("FLASHSCORE_COOLDOWN_SEC", "600"))
 FLASHSCORE_TIMEOUT_SEC = float(os.environ.get("FLASHSCORE_TIMEOUT_SEC", "45"))
 FLASHSCORE_NAME_MATCH_MIN = int(os.environ.get("FLASHSCORE_NAME_MATCH_MIN", "80"))
+FLASHSCORE_HINT_MIN_SIDE = int(os.environ.get("FLASHSCORE_HINT_MIN_SIDE", "50"))
+FLASHSCORE_HINT_MIN_AVG = int(os.environ.get("FLASHSCORE_HINT_MIN_AVG", "55"))
+# Shared secret for confirming near-miss score links in the web UI
+SCORE_LINK_SECRET = os.environ.get("SCORE_LINK_SECRET", "").strip()
+SCORE_LINK_COOKIE = "dg_score_link"
 
 # OpenAI-compatible LLM for AI Picks (MatchPredictor Luna screen pattern)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()

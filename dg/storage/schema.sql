@@ -217,3 +217,18 @@ CREATE TABLE IF NOT EXISTS ai_pick (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_pick_day ON ai_pick(day);
+
+CREATE TABLE IF NOT EXISTS flashscore_row (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scraped_at TEXT NOT NULL,
+    day_offset INTEGER,
+    league TEXT,
+    home TEXT NOT NULL,
+    away TEXT NOT NULL,
+    fthg INTEGER NOT NULL,
+    ftag INTEGER NOT NULL,
+    kickoff_hint TEXT,
+    fingerprint TEXT NOT NULL UNIQUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_flashscore_row_scraped ON flashscore_row(scraped_at);

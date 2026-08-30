@@ -253,22 +253,33 @@ def normalize_team_name(name: str) -> str:
 
 def teams_match(a: str, b: str, *, min_score: Optional[int] = None) -> bool:
     """Fuzzy / containment team name match (MatchPredictor-inspired)."""
+    threshold = int(min_score if min_score is not None else config.FLASHSCORE_NAME_MATCH_MIN)
+    return team_match_score(a, b) >= threshold
+
+
+def team_match_score(a: str, b: str) -> int:
+    """0–100 similarity after normalize (100 = exact / containment)."""
     from thefuzz import fuzz
 
-    threshold = int(min_score if min_score is not None else config.FLASHSCORE_NAME_MATCH_MIN)
     na, nb = normalize_team_name(a), normalize_team_name(b)
     if not na or not nb:
-        return False
+        return 0
     if na == nb:
-        return True
+        return 100
     if na in nb or nb in na:
-        return True
-    score = max(
-        fuzz.token_sort_ratio(na, nb),
-        fuzz.token_set_ratio(na, nb),
-        fuzz.partial_ratio(na, nb),
+        return 100
+    return int(
+        max(
+            fuzz.token_sort_ratio(na, nb),
+            fuzz.token_set_ratio(na, nb),
+            fuzz.partial_ratio(na, nb),
+        )
     )
-    return score >= threshold
+
+
+def row_fingerprint(row: Dict[str, Any]) -> str:
+    home, away, fthg, ftag, league = _row_dedupe_key(row)
+    return f"{home}|{away}|{fthg}|{ftag}|{league}"
 
 
 def _row_dedupe_key(row: Dict[str, Any]) -> Tuple[str, str, Any, Any, str]:

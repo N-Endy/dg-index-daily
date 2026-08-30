@@ -58,6 +58,8 @@ When a score is present you will see:
 
 Past kickoff with no result yet shows **Awaiting score** until the next successful sync. Flashscore markup or Cloudflare challenges can temporarily block scrapes — the job cools down and retries later.
 
+When a scrape looks **close** but not close enough for auto-attach, a **!** appears next to Awaiting score. Click it to review possible Flashscore rows and confirm the right one (requires unlocking with `SCORE_LINK_SECRET` via `/score-link/unlock?token=…`).
+
 ### Why (key drivers)
 
 Short plain-English reasons pulled from the biggest contributors to the score — for example “One side has a clear DG Rating strength advantage.”

@@ -169,6 +169,7 @@ def match_flashscore_row_to_fixture(
     best: Optional[Dict[str, Any]] = None
     best_score = -1
     from thefuzz import fuzz
+
     from dg.sources.flashscore import normalize_team_name
 
     today = _utcnow().date()
@@ -263,6 +264,10 @@ def sync_flashscore_scores(
         return summary
 
     summary["scraped"] = len(rows)
+    from dg.report.score_hints import persist_flashscore_rows
+
+    persisted = persist_flashscore_rows(conn, rows)
+    summary["persisted"] = persisted
     used: Set[int] = set()
     for row in rows:
         fx = match_flashscore_row_to_fixture(row, candidates, used)

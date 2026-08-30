@@ -55,6 +55,7 @@
         <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
         {% elif p.awaiting_score %}
         <span class="ft-awaiting" title="Result not synced yet">Awaiting score</span>
+        {% include "_score_near_miss.html" %}
         {% endif %}
         <span class="agree agree-{{ p.agreement_key or 'unknown' }}">{{ p.agreement_label or "—" }}</span>
       </div>

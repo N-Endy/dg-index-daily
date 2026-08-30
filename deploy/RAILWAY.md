@@ -38,11 +38,14 @@ API_FOOTBALL_KEY=...     # optional; leftovers only — unset if the account is 
 OPENAI_API_KEY=...       # optional; enables AI Picks (LLM screen of Strongest leans)
 OPENAI_MODEL=gpt-5.6-luna  # optional; default gpt-5.6-luna
 AI_VET_MIN_SCORE=70      # optional; approve floor for AI Picks
+SCORE_LINK_SECRET=...    # optional; unlock Flashscore “!” near-miss score confirms
 ```
 
 **Final scores:** the daily job scrapes **flashscore.mobi** (Playwright/Chromium in the image) via `sync-scores`, then falls back to football-data.co.uk. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
 
 **AI Picks:** after predictions, `vet-ai-picks` screens Strongest leans via an OpenAI-compatible API. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup.
+
+**Score near-miss (!):** set `SCORE_LINK_SECRET`, then visit `/score-link/unlock?token=YOUR_SECRET` once (HttpOnly cookie, 12h). Awaiting fixtures with soft Flashscore name matches show **!** — confirm a candidate to write **Final**.
 
 ### 3. Start command
 

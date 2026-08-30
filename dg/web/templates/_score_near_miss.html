@@ -1,0 +1,9 @@
+{% if p.awaiting_score and p.score_hint_candidates %}
+<button type="button"
+        class="dg-score-near-miss"
+        title="Possible Flashscore score — click to review"
+        data-fixture-id="{{ p.fixture_id }}"
+        data-home="{{ p.home_name }}"
+        data-away="{{ p.away_name }}"
+        data-candidates='{{ p.score_hint_candidates | tojson }}'>!</button>
+{% endif %}
