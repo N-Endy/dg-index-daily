@@ -12,6 +12,44 @@ from dg.ai.vet_strongest import (
 from dg.storage.db import connect, init_db
 
 
+def test_chat_json_sends_max_completion_tokens(monkeypatch):
+    from dg import config
+    from dg.ai import openai_client as oc
+
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"ok":true}'}}]}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            captured["url"] = url
+            captured["json"] = json
+            return _Resp()
+
+    monkeypatch.setattr(oc.httpx, "Client", _Client)
+    out = oc.chat_json(system="s", user="u", max_tokens=1500)
+    assert out == '{"ok":true}'
+    body = captured["json"]
+    assert "max_completion_tokens" in body
+    assert body["max_completion_tokens"] == 1500
+    assert "max_tokens" not in body
+
+
 def test_parse_screen_response_resilient_keys():
     raw = json.dumps(
         {

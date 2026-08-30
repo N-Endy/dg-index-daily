@@ -33,13 +33,14 @@ def chat_json(
         raise OpenAIError("OPENAI_API_KEY is not set")
 
     url = f"{config.OPENAI_BASE_URL}/chat/completions"
+    # GPT-5.x / Luna reject max_tokens; use max_completion_tokens (MatchPredictor).
     payload: Dict[str, Any] = {
         "model": model or config.OPENAI_MODEL,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": int(max_tokens),
+        "max_completion_tokens": int(max_tokens),
         "response_format": {"type": "json_object"},
     }
     headers = {
