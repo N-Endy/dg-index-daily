@@ -6,7 +6,7 @@ import re
 import time
 import unicodedata
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
 from dg import config
@@ -210,6 +210,18 @@ def parse_score_data_html(raw_html: str, *, finished_only: bool = True) -> List[
     return parser.rows
 
 
+_MAN_EXPAND_NEXT = frozenset({"united", "utd", "city"})
+
+
+def flashscore_url(day_offset: int = 0) -> str:
+    """Build flashscore.mobi URL; prior days use ?d=-1, ?d=-2, …"""
+    base = config.FLASHSCORE_URL.rstrip("/")
+    offset = int(day_offset)
+    if offset == 0:
+        return base
+    return f"{base}/?d={offset}"
+
+
 def normalize_team_name(name: str) -> str:
     text = unicodedata.normalize("NFKD", name or "")
     text = "".join(c for c in text if not unicodedata.combining(c))
@@ -220,7 +232,23 @@ def normalize_team_name(name: str) -> str:
             text = text[: -len(noise)]
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
-    return text
+    tokens = text.split()
+    out: List[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        if tok == "man" and nxt in _MAN_EXPAND_NEXT:
+            out.append("manchester")
+            i += 1
+            continue
+        if tok == "utd":
+            out.append("united")
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    return " ".join(out)
 
 
 def teams_match(a: str, b: str, *, min_score: Optional[int] = None) -> bool:
@@ -243,9 +271,53 @@ def teams_match(a: str, b: str, *, min_score: Optional[int] = None) -> bool:
     return score >= threshold
 
 
-def fetch_score_data_html() -> str:
+def _row_dedupe_key(row: Dict[str, Any]) -> Tuple[str, str, Any, Any, str]:
+    return (
+        normalize_team_name(row.get("home") or ""),
+        normalize_team_name(row.get("away") or ""),
+        row.get("fthg"),
+        row.get("ftag"),
+        (row.get("league") or "").strip().lower(),
+    )
+
+
+def dedupe_score_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep first occurrence of each finished score identity across day pages."""
+    seen: Set[Tuple[str, str, Any, Any, str]] = set()
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        key = _row_dedupe_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _fetch_score_data_html_on_page(page, day_offset: int, timeout_ms: int) -> str:
+    url = flashscore_url(day_offset)
+    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+    title = page.title()
+    body = page.content()
+    if looks_like_challenge_page(body, title):
+        _record_cooldown()
+        raise FlashscoreBlockedError(f"Blocked by challenge page: {title} ({url})")
+    try:
+        page.wait_for_selector("#score-data", timeout=timeout_ms)
+    except Exception:
+        body = page.content()
+        title = page.title()
+        if looks_like_challenge_page(body, title):
+            _record_cooldown()
+            raise FlashscoreBlockedError(f"Blocked while waiting for #score-data: {title}")
+        raise FlashscoreUnavailableError(f"#score-data not found on {url}")
+    return page.inner_html("#score-data") or ""
+
+
+def fetch_score_data_html(day_offset: int = 0) -> str:
     """
     Open flashscore.mobi with Playwright (mobile UA), return #score-data innerHTML.
+    day_offset: 0 = today, -1 = yesterday, etc.
     """
     _check_cooldown()
     try:
@@ -255,7 +327,6 @@ def fetch_score_data_html() -> str:
             "playwright is not installed — pip install playwright && playwright install chromium"
         ) from exc
 
-    url = config.FLASHSCORE_URL
     timeout_ms = int(config.FLASHSCORE_TIMEOUT_SEC * 1000)
     try:
         with sync_playwright() as p:
@@ -269,26 +340,11 @@ def fetch_score_data_html() -> str:
             page.add_init_script(
                 "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
             )
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            title = page.title()
-            body = page.content()
-            if looks_like_challenge_page(body, title):
-                _record_cooldown()
-                browser.close()
-                raise FlashscoreBlockedError(f"Blocked by challenge page: {title}")
             try:
-                page.wait_for_selector("#score-data", timeout=timeout_ms)
-            except Exception:
-                body = page.content()
-                title = page.title()
+                html = _fetch_score_data_html_on_page(page, day_offset, timeout_ms)
+            finally:
                 browser.close()
-                if looks_like_challenge_page(body, title):
-                    _record_cooldown()
-                    raise FlashscoreBlockedError(f"Blocked while waiting for #score-data: {title}")
-                raise FlashscoreUnavailableError("#score-data not found on flashscore.mobi")
-            html = page.inner_html("#score-data")
-            browser.close()
-            return html or ""
+            return html
     except (FlashscoreBlockedError, FlashscoreCooldownError, FlashscoreUnavailableError):
         raise
     except Exception as exc:  # noqa: BLE001
@@ -297,9 +353,67 @@ def fetch_score_data_html() -> str:
         raise FlashscoreUnavailableError(str(exc)) from exc
 
 
-def scrape_finished_scores() -> List[Dict[str, Any]]:
-    """Fetch + parse finished (a.fin) scores from flashscore.mobi."""
-    html = fetch_score_data_html()
-    rows = parse_score_data_html(html, finished_only=True)
-    logger.info("Flashscore scrape returned %d finished scores", len(rows))
+def scrape_finished_scores(
+    day_offsets: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch + parse finished (a.fin) scores from flashscore.mobi.
+    Multiple day offsets share one browser session; rows are deduped.
+    """
+    offsets = day_offsets if day_offsets is not None else [0]
+    # Stable unique order: today first, then older days
+    unique_offsets: List[int] = []
+    for off in offsets:
+        o = int(off)
+        if o not in unique_offsets:
+            unique_offsets.append(o)
+    if not unique_offsets:
+        unique_offsets = [0]
+
+    _check_cooldown()
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise FlashscoreUnavailableError(
+            "playwright is not installed — pip install playwright && playwright install chromium"
+        ) from exc
+
+    timeout_ms = int(config.FLASHSCORE_TIMEOUT_SEC * 1000)
+    merged: List[Dict[str, Any]] = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=_MOBILE_UA,
+                viewport={"width": 390, "height": 844},
+                locale="en-US",
+            )
+            page = context.new_page()
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            try:
+                for off in unique_offsets:
+                    html = _fetch_score_data_html_on_page(page, off, timeout_ms)
+                    day_rows = parse_score_data_html(html, finished_only=True)
+                    logger.info(
+                        "Flashscore d=%s returned %d finished scores", off, len(day_rows)
+                    )
+                    merged.extend(day_rows)
+            finally:
+                browser.close()
+    except (FlashscoreBlockedError, FlashscoreCooldownError, FlashscoreUnavailableError):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Flashscore multi-day scrape failed: %s", exc)
+        _record_cooldown()
+        raise FlashscoreUnavailableError(str(exc)) from exc
+
+    rows = dedupe_score_rows(merged)
+    logger.info(
+        "Flashscore scrape returned %d finished scores (offsets=%s, raw=%d)",
+        len(rows),
+        unique_offsets,
+        len(merged),
+    )
     return rows

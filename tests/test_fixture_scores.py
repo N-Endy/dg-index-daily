@@ -40,7 +40,134 @@ def test_teams_match_fuzzy():
     assert teams_match("Derby", "Derby County")
     assert teams_match("Swansea", "Swansea City")
     assert teams_match("Man United", "Manchester United")
+    assert teams_match("Man United", "Manchester Utd")
+    assert teams_match("Man City", "Manchester City")
     assert not teams_match("Arsenal", "Chelsea")
+
+
+def test_flashscore_url_day_offsets():
+    from dg.sources.flashscore import flashscore_url
+
+    assert flashscore_url(0).endswith("flashscore.mobi") or "flashscore.mobi" in flashscore_url(0)
+    assert flashscore_url(0).rstrip("/").endswith("flashscore.mobi")
+    assert flashscore_url(-1).endswith("?d=-1")
+    assert flashscore_url(-2).endswith("?d=-2")
+
+
+def test_dedupe_score_rows_across_days():
+    from dg.sources.flashscore import dedupe_score_rows
+
+    rows = [
+        {
+            "league": "ENGLAND: Premier League",
+            "home": "Chelsea",
+            "away": "Brighton",
+            "fthg": 4,
+            "ftag": 3,
+        },
+        {
+            "league": "ENGLAND: Premier League",
+            "home": "Chelsea",
+            "away": "Brighton",
+            "fthg": 4,
+            "ftag": 3,
+        },
+        {
+            "league": "ENGLAND: Championship",
+            "home": "Derby",
+            "away": "Swansea",
+            "fthg": 2,
+            "ftag": 1,
+        },
+    ]
+    out = dedupe_score_rows(rows)
+    assert len(out) == 2
+
+
+def test_day_offsets_for_candidates(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc),
+    )
+    cands = [
+        {"date_utc": "2026-08-30T15:00:00+00:00"},
+        {"date_utc": "2026-08-29T15:00:00+00:00"},
+        {"date_utc": "2026-08-28T15:00:00+00:00"},
+        {"date_utc": "2026-08-20T15:00:00+00:00"},  # clamps to -3
+    ]
+    assert fs.day_offsets_for_candidates(cands) == [0, -1, -2, -3]
+
+
+def test_scrape_finished_scores_merges_offsets(monkeypatch):
+    from dg.sources import flashscore as fs
+
+    html_a = (
+        "<h4>ENGLAND: Premier League</h4>"
+        "<span>15:00</span>Chelsea - Brighton "
+        '<a class="fin">4-3</a>'
+    )
+    html_b = (
+        "<h4>ENGLAND: Championship</h4>"
+        "<span>15:00</span>Derby - Swansea "
+        '<a class="fin">2-1</a><br />'
+        "<h4>ENGLAND: Premier League</h4>"
+        "<span>15:00</span>Chelsea - Brighton "
+        '<a class="fin">4-3</a>'
+    )
+    pages = {0: html_a, -1: html_b}
+
+    def fake_fetch(page, day_offset, timeout_ms):
+        return pages[day_offset]
+
+    monkeypatch.setattr(fs, "_check_cooldown", lambda: None)
+    monkeypatch.setattr(fs, "_fetch_score_data_html_on_page", fake_fetch)
+
+    class _FakePage:
+        def add_init_script(self, *_a, **_k):
+            return None
+
+    class _FakeContext:
+        def new_page(self):
+            return _FakePage()
+
+    class _FakeBrowser:
+        def new_context(self, **_k):
+            return _FakeContext()
+
+        def close(self):
+            return None
+
+    class _FakeChromium:
+        def launch(self, **_k):
+            return _FakeBrowser()
+
+    class _FakePW:
+        chromium = _FakeChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    import sys
+    from types import ModuleType
+
+    fake_sync = ModuleType("playwright.sync_api")
+    fake_sync.sync_playwright = lambda: _FakePW()
+    fake_pw = ModuleType("playwright")
+    monkeypatch.setitem(sys.modules, "playwright", fake_pw)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync)
+
+    rows = fs.scrape_finished_scores(day_offsets=[0, -1])
+    assert len(rows) == 2
+    homes = {r["home"] for r in rows}
+    assert homes == {"Chelsea", "Derby"}
 
 
 def test_cooldown_blocks_fetch(monkeypatch):

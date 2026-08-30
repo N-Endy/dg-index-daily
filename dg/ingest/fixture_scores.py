@@ -136,6 +136,26 @@ def _fixture_day(fx: Dict[str, Any]) -> Optional[str]:
     return (fx.get("date_utc") or "")[:10] or None
 
 
+def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
+    """
+    Map candidate fixture UTC days to flashscore.mobi ?d= offsets.
+    Always include today (0); clamp older days to [-3, 0].
+    """
+    today = _utcnow().date()
+    offsets: Set[int] = {0}
+    for fx in candidates:
+        day = _fixture_day(fx)
+        if not day:
+            continue
+        try:
+            fday = datetime.strptime(day, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        raw = (fday - today).days
+        offsets.add(max(-3, min(0, raw)))
+    return sorted(offsets, reverse=True)  # 0, -1, -2, …
+
+
 def match_flashscore_row_to_fixture(
     row: Dict[str, Any],
     candidates: List[Dict[str, Any]],
@@ -204,9 +224,11 @@ def sync_flashscore_scores(
 ) -> Dict[str, Any]:
     """Match scraped Flashscore rows onto fixtures needing scores."""
     candidates = fixtures_needing_scores(conn)
+    offsets = day_offsets_for_candidates(candidates)
     summary: Dict[str, Any] = {
         "source": SOURCE_FLASHSCORE,
         "candidates": len(candidates),
+        "day_offsets": offsets,
         "scraped": 0,
         "written": 0,
         "unmatched": 0,
@@ -219,7 +241,11 @@ def sync_flashscore_scores(
         return summary
 
     try:
-        rows = scraped_rows if scraped_rows is not None else scrape_finished_scores()
+        rows = (
+            scraped_rows
+            if scraped_rows is not None
+            else scrape_finished_scores(day_offsets=offsets)
+        )
     except FlashscoreCooldownError as exc:
         logger.warning("%s", exc)
         summary["skipped_cooldown"] = True
@@ -248,6 +274,18 @@ def sync_flashscore_scores(
         summary["written"] += 1
 
     conn.commit()
+    if summary["written"] == 0 and candidates:
+        sample = [
+            f"{c.get('home_name')} vs {c.get('away_name')} ({(c.get('date_utc') or '')[:10]})"
+            for c in candidates[:8]
+        ]
+        logger.warning(
+            "Flashscore wrote 0/%d candidates (scraped=%d, offsets=%s); sample: %s",
+            len(candidates),
+            len(rows),
+            offsets,
+            sample,
+        )
     logger.info("Flashscore sync: %s", summary)
     return summary
 
