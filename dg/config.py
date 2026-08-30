@@ -134,6 +134,15 @@ ALIAS_FUZZY_THRESHOLD = 80
 SUPERVISED_MIN_LABELS = 300
 DEFAULT_FD_SEASON = "2627"
 
+# API-Football (api-sports.io) — timely FT scores by fixture_id
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "").strip()
+API_FOOTBALL_BASE = os.environ.get(
+    "API_FOOTBALL_BASE",
+    "https://v3.football.api-sports.io",
+).rstrip("/")
+API_FOOTBALL_IDS_CHUNK = int(os.environ.get("API_FOOTBALL_IDS_CHUNK", "20"))
+API_FOOTBALL_FINISHED = frozenset({"FT", "AET", "PEN"})
+
 # Exit codes
 EXIT_OK = 0
 EXIT_PARTIAL = 1

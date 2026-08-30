@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from dg import config
 from dg.ingest.fixtures import ingest_fixtures
+from dg.ingest.fixture_scores import sync_fixture_scores
 from dg.ingest.ratings import ingest_ratings, team_ids_for_snapshot
 from dg.ingest.results import backfill_results
 from dg.model.evaluate import evaluate_joined
@@ -295,6 +296,21 @@ def cmd_backfill(args: argparse.Namespace) -> int:
             return config.EXIT_CRITICAL
 
 
+def cmd_sync_scores(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    with db_session() as conn:
+        try:
+            summary = sync_fixture_scores(conn)
+            logger.info("Sync scores: %s", summary)
+            if summary.get("skipped_no_key"):
+                return config.EXIT_PARTIAL
+            return config.EXIT_OK
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Sync scores failed: %s", exc)
+            return config.EXIT_CRITICAL
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     setup_logging(args.verbose)
     init_db()
@@ -346,6 +362,12 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--season", default=config.DEFAULT_FD_SEASON)
     bf.add_argument("--no-new", action="store_true", help="Skip /new/ country CSVs")
     bf.set_defaults(func=cmd_backfill)
+
+    ss = sub.add_parser(
+        "sync-scores",
+        help="Pull finished FT scores from API-Football for past board fixtures",
+    )
+    ss.set_defaults(func=cmd_sync_scores)
 
     bt = sub.add_parser("backtest", help="Score predictions vs results")
     bt.set_defaults(func=cmd_backtest)

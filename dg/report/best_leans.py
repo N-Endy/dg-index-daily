@@ -266,6 +266,7 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "ft_home": pred.get("ft_home"),
         "ft_away": pred.get("ft_away"),
         "ftr": pred.get("ftr"),
+        "awaiting_score": bool(pred.get("awaiting_score")),
         **{k: v for k, v in best.items() if k != "_rank"},
         "_rank": best["_rank"],
     }

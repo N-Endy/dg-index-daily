@@ -44,13 +44,18 @@ When **Our lean**, **DG model**, and **the book** agree, that is more interestin
 
 ### Final scores (completed matches)
 
-After a match has finished and football-data.co.uk has published the result (pulled on the **daily refresh**), the board shows:
+After a match has finished, the board shows the full-time score when a result has been synced:
+
+- Prefer **API-Football** (same fixture ids as the DG feed) via the daily `sync-scores` job — needs `API_FOOTBALL_KEY` on the server
+- Fallback: **football-data.co.uk** (often 1–2 days behind on weekends; some leagues never appear)
+
+When a score is present you will see:
 
 - **Final** scoreline next to kickoff (e.g. Final 2–1)
 - **Lean hit / Lean miss** on the match-winner lean
 - **Hit / Miss** on market chips when that market can be labelled from the result (goals, BTTS, etc.)
 
-If a fixture is past kickoff but still has no score, the result has not landed in the database yet — check again after the next daily refresh.
+Past kickoff with no result yet shows **Awaiting score** until the next successful sync.
 
 ### Why (key drivers)
 

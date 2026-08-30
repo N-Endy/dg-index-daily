@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from dg import config
@@ -441,11 +441,25 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
         lr_key, lr_label = lean_result(pred.get("lean"), pred.get("ftr"))
         out["lean_result_key"] = lr_key
         out["lean_result_label"] = lr_label
+        out["awaiting_score"] = False
     else:
         out["lean_result_key"] = "pending"
         out["lean_result_label"] = ""
+        out["awaiting_score"] = _kickoff_in_past(pred.get("date_utc"))
 
     return out
+
+
+def _kickoff_in_past(date_utc: Optional[str]) -> bool:
+    if not date_utc:
+        return False
+    try:
+        kickoff = datetime.fromisoformat(date_utc.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=timezone.utc)
+    return kickoff <= datetime.now(timezone.utc)
 
 
 def _format_kickoff(date_utc: Optional[str]) -> str:

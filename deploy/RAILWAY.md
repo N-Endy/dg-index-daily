@@ -34,7 +34,10 @@ Optional variables:
 CRON_HOUR_UTC=8          # daily run hour (UTC); default 8
 RUN_DAILY_ON_START=1     # run pipeline once on boot (default 1); set 0 to skip
 FD_SEASON=2627           # football-data.co.uk season for daily results backfill
+API_FOOTBALL_KEY=...     # api-sports.io key — timely FT scores for finished fixtures
 ```
+
+`API_FOOTBALL_KEY` is required for **Final** scores to appear soon after kickoff. Without it, the board still works; past fixtures show **Awaiting score** until football-data.co.uk catches up (often 1–2 days). Get a free key at [dashboard.api-football.com](https://dashboard.api-football.com/).
 
 ### 3. Start command
 
@@ -64,9 +67,11 @@ To run manually from **web → Shell**:
 
 ```
 python run_daily.py
+python -m dg.cli backfill-results --season 2627
+python -m dg.cli sync-scores
 ```
 
-Or the full daily wrapper (pipeline + results backfill):
+Or the full daily wrapper (pipeline + FD results + API-Football scores):
 
 ```
 sh deploy/cron_daily.sh
