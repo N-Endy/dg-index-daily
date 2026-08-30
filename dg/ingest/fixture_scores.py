@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from dg import config
 from dg.report.results_attach import load_result_index, lookup_result
 from dg.sources.apifootball import (
     ApiFootballConfigError,
-    fetch_fixtures_by_ids,
+    fetch_fixture_by_id,
+    fetch_fixtures_by_date,
     parse_finished_score,
 )
 
@@ -113,72 +115,112 @@ def upsert_api_result(conn, fixture: Dict[str, Any], score: Dict[str, Any]) -> N
     )
 
 
+def _apply_items(
+    conn,
+    items: List[Dict[str, Any]],
+    by_id: Dict[int, Dict[str, Any]],
+    written_ids: Set[int],
+) -> Tuple[int, int, int]:
+    """Upsert finished scores that match candidates. Returns (fetched, written, not_finished)."""
+    fetched = len(items)
+    written = 0
+    not_finished = 0
+    for item in items:
+        score = parse_finished_score(item)
+        if score is None:
+            not_finished += 1
+            continue
+        fid = score.get("fixture_id")
+        if fid is None:
+            fx_block = item.get("fixture") or {}
+            fid = fx_block.get("id")
+        if fid is None:
+            continue
+        fid = int(fid)
+        if fid not in by_id or fid in written_ids:
+            continue
+        upsert_api_result(conn, by_id[fid], score)
+        written_ids.add(fid)
+        written += 1
+    return fetched, written, not_finished
+
+
 def sync_fixture_scores(conn) -> Dict[str, Any]:
     """
     Pull finished scores from API-Football for past predicted fixtures missing results.
 
-    Returns counts: skipped_no_key | candidates | fetched | written | not_finished | errors
+    Free-plan safe: fetch by ``date`` (not batch ``ids``), then optional single ``id`` fallback.
     """
     if not config.API_FOOTBALL_KEY:
         logger.warning("API_FOOTBALL_KEY not set — skipping score sync")
         return {
             "skipped_no_key": True,
             "candidates": 0,
+            "days_fetched": 0,
             "fetched": 0,
             "written": 0,
             "not_finished": 0,
+            "fallback_tried": 0,
             "errors": 0,
         }
 
     candidates = fixtures_needing_scores(conn)
     by_id = {int(c["fixture_id"]): c for c in candidates if c.get("fixture_id") is not None}
-    ids = list(by_id.keys())
-    chunk = max(1, config.API_FOOTBALL_IDS_CHUNK)
-    written = 0
+    by_day: Dict[str, List[int]] = defaultdict(list)
+    for fid, fx in by_id.items():
+        day = (fx.get("date_utc") or "")[:10]
+        if day:
+            by_day[day].append(fid)
+
+    written_ids: Set[int] = set()
     fetched = 0
+    written = 0
     not_finished = 0
     errors = 0
+    days_fetched = 0
 
-    for i in range(0, len(ids), chunk):
-        batch = ids[i : i + chunk]
+    for day in sorted(by_day.keys()):
         try:
-            items = fetch_fixtures_by_ids(batch)
+            items = fetch_fixtures_by_date(day)
         except ApiFootballConfigError:
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.warning("API-Football batch failed (%s): %s", batch[:3], exc)
+            logger.warning("API-Football date=%s failed: %s", day, exc)
             errors += 1
             continue
-        fetched += len(items)
-        seen = set()
-        for item in items:
-            score = parse_finished_score(item)
-            if score is None:
-                not_finished += 1
-                continue
-            fid = score.get("fixture_id")
-            if fid is None or fid not in by_id:
-                # Map by response fixture id
-                fx_block = item.get("fixture") or {}
-                fid = fx_block.get("id")
-            if fid is None or int(fid) not in by_id:
-                continue
-            fid = int(fid)
-            seen.add(fid)
-            upsert_api_result(conn, by_id[fid], score)
-            written += 1
-        for fid in batch:
-            if fid not in seen:
-                # No payload or not finished — counted loosely via not_finished
-                pass
+        days_fetched += 1
+        f, w, nf = _apply_items(conn, items, by_id, written_ids)
+        fetched += f
+        written += w
+        not_finished += nf
+
+    remaining = [fid for fid in by_id if fid not in written_ids]
+    fallback_max = max(0, config.API_FOOTBALL_ID_FALLBACK_MAX)
+    fallback_tried = 0
+    for fid in remaining[:fallback_max]:
+        fallback_tried += 1
+        try:
+            items = fetch_fixture_by_id(fid)
+        except ApiFootballConfigError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("API-Football id=%s failed: %s", fid, exc)
+            errors += 1
+            continue
+        f, w, nf = _apply_items(conn, items, by_id, written_ids)
+        fetched += f
+        written += w
+        not_finished += nf
 
     conn.commit()
     summary = {
         "skipped_no_key": False,
-        "candidates": len(ids),
+        "candidates": len(by_id),
+        "days_fetched": days_fetched,
         "fetched": fetched,
         "written": written,
         "not_finished": not_finished,
+        "fallback_tried": fallback_tried,
         "errors": errors,
     }
     logger.info("Score sync: %s", summary)

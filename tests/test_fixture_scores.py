@@ -65,6 +65,93 @@ def test_api_result_attaches_to_prediction(tmp_path):
     conn.close()
 
 
+def test_sync_by_date_writes_matching_finished(tmp_path, monkeypatch):
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+    from dg.storage.db import connect, init_db
+
+    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "test-key")
+    conn = init_db(connect(tmp_path / "sync_date.db"))
+    # Minimal snapshot + fixture + prediction so fixtures_needing_scores finds it
+    conn.execute(
+        "INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams) VALUES (?,?,?,?)",
+        ("2026-08-30T00:00:00+00:00", "2026-08-30T00:00:00+00:00", "x", 1),
+    )
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            1557377,
+            "2026-08-28T14:00:00+00:00",
+            "Championship",
+            40,
+            69,
+            76,
+            "Derby",
+            "Swansea",
+            "2026-08-28T00:00:00+00:00",
+            "2026-08-28T00:00:00+00:00",
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, snapshot_id, model_version, predicted_at,
+            lean, confidence, match_character, score, scores_json, drivers_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            1557377,
+            1,
+            "test",
+            "2026-08-28T00:00:00+00:00",
+            "Home",
+            "high",
+            "open",
+            0.3,
+            "{}",
+            "[]",
+        ),
+    )
+    conn.commit()
+
+    api_item = {
+        "fixture": {"id": 1557377, "status": {"short": "FT"}},
+        "goals": {"home": 2, "away": 1},
+        "score": {
+            "halftime": {"home": 1, "away": 0},
+            "fulltime": {"home": 2, "away": 1},
+        },
+    }
+
+    def fake_by_date(day: str):
+        assert day == "2026-08-28"
+        return [api_item]
+
+    def fake_by_id(_fid: int):
+        return []
+
+    monkeypatch.setattr(fs, "fetch_fixtures_by_date", fake_by_date)
+    monkeypatch.setattr(fs, "fetch_fixture_by_id", fake_by_id)
+
+    summary = fs.sync_fixture_scores(conn)
+    assert summary["skipped_no_key"] is False
+    assert summary["days_fetched"] == 1
+    assert summary["written"] == 1
+    assert summary["fallback_tried"] == 0
+    row = conn.execute(
+        "SELECT fthg, ftag, ftr FROM match_result WHERE source='api-football'"
+    ).fetchone()
+    assert row is not None
+    assert int(row["fthg"]) == 2 and int(row["ftag"]) == 1 and row["ftr"] == "H"
+    conn.close()
+
+
 def test_sync_scores_skips_without_key(tmp_path, monkeypatch):
     from dg import config
 

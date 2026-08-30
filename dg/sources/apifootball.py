@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from dg import config
 from dg.http import _polite_wait, get_session
@@ -26,16 +27,9 @@ def _headers() -> Dict[str, str]:
     }
 
 
-def fetch_fixtures_by_ids(fixture_ids: Sequence[int]) -> List[Dict[str, Any]]:
-    """
-    GET /fixtures?ids=id1-id2-... and return the ``response`` list.
-    Caller should chunk ids (API typically allows ~20 per request).
-    """
-    ids = [int(i) for i in fixture_ids if i is not None]
-    if not ids:
-        return []
-    id_param = "-".join(str(i) for i in ids)
-    url = f"{config.API_FOOTBALL_BASE}/fixtures?ids={id_param}"
+def _get_fixtures(params: Dict[str, str]) -> List[Dict[str, Any]]:
+    """GET /fixtures with query params; return response list."""
+    url = f"{config.API_FOOTBALL_BASE}/fixtures?{urlencode(params)}"
     _polite_wait()
     raw = get_session().get(
         url,
@@ -53,7 +47,23 @@ def fetch_fixtures_by_ids(fixture_ids: Sequence[int]) -> List[Dict[str, Any]]:
     response = data.get("response") or []
     if not isinstance(response, list):
         return []
-    logger.info("API-Football returned %d fixtures for %d ids", len(response), len(ids))
+    return response
+
+
+def fetch_fixtures_by_date(day: str) -> List[Dict[str, Any]]:
+    """GET /fixtures?date=YYYY-MM-DD (free-plan safe)."""
+    day = (day or "").strip()[:10]
+    if not day:
+        return []
+    response = _get_fixtures({"date": day})
+    logger.info("API-Football date=%s returned %d fixtures", day, len(response))
+    return response
+
+
+def fetch_fixture_by_id(fixture_id: int) -> List[Dict[str, Any]]:
+    """GET /fixtures?id={id} — singular id (free-plan safe; not batch ids)."""
+    response = _get_fixtures({"id": str(int(fixture_id))})
+    logger.info("API-Football id=%s returned %d fixtures", fixture_id, len(response))
     return response
 
 

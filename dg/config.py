@@ -141,6 +141,7 @@ API_FOOTBALL_BASE = os.environ.get(
     "https://v3.football.api-sports.io",
 ).rstrip("/")
 API_FOOTBALL_IDS_CHUNK = int(os.environ.get("API_FOOTBALL_IDS_CHUNK", "20"))
+API_FOOTBALL_ID_FALLBACK_MAX = int(os.environ.get("API_FOOTBALL_ID_FALLBACK_MAX", "30"))
 API_FOOTBALL_FINISHED = frozenset({"FT", "AET", "PEN"})
 
 # Exit codes
