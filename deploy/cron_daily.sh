@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Railway daily pipeline: ingest/predict, FD results, then API-Football scores.
+# Railway daily pipeline: ingest/predict, FD results, then Flashscore sync-scores.
 set -eu
 python run_daily.py
 python -m dg.cli backfill-results --season "${FD_SEASON:-2627}" || true

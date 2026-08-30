@@ -144,6 +144,12 @@ API_FOOTBALL_IDS_CHUNK = int(os.environ.get("API_FOOTBALL_IDS_CHUNK", "20"))
 API_FOOTBALL_ID_FALLBACK_MAX = int(os.environ.get("API_FOOTBALL_ID_FALLBACK_MAX", "30"))
 API_FOOTBALL_FINISHED = frozenset({"FT", "AET", "PEN"})
 
+# Flashscore.mobi timely scores (MatchPredictor pattern)
+FLASHSCORE_URL = os.environ.get("FLASHSCORE_URL", "https://www.flashscore.mobi").rstrip("/")
+FLASHSCORE_COOLDOWN_SEC = float(os.environ.get("FLASHSCORE_COOLDOWN_SEC", "600"))
+FLASHSCORE_TIMEOUT_SEC = float(os.environ.get("FLASHSCORE_TIMEOUT_SEC", "45"))
+FLASHSCORE_NAME_MATCH_MIN = int(os.environ.get("FLASHSCORE_NAME_MATCH_MIN", "80"))
+
 # Exit codes
 EXIT_OK = 0
 EXIT_PARTIAL = 1

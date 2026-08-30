@@ -7,14 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data \
     PORT=8080 \
     CRON_HOUR_UTC=8 \
-    RUN_DAILY_ON_START=1
+    RUN_DAILY_ON_START=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && playwright install --with-deps chromium
 
 COPY dg/ dg/
 COPY config/ config/

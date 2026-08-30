@@ -303,7 +303,10 @@ def cmd_sync_scores(args: argparse.Namespace) -> int:
         try:
             summary = sync_fixture_scores(conn)
             logger.info("Sync scores: %s", summary)
-            if summary.get("skipped_no_key"):
+            flash = summary.get("flashscore") or {}
+            if flash.get("skipped_blocked") or flash.get("skipped_unavailable"):
+                return config.EXIT_PARTIAL
+            if summary.get("written", 0) == 0 and flash.get("skipped_cooldown"):
                 return config.EXIT_PARTIAL
             return config.EXIT_OK
         except Exception as exc:  # noqa: BLE001
@@ -365,7 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ss = sub.add_parser(
         "sync-scores",
-        help="Pull finished FT scores from API-Football for past board fixtures",
+        help="Pull finished FT scores (Flashscore.mobi; optional API-Football leftovers)",
     )
     ss.set_defaults(func=cmd_sync_scores)
 

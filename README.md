@@ -21,13 +21,13 @@ Short version:
 |--------|---------|
 | Build | `Dockerfile` |
 | Volume | Mount at `/data` on the **web** service only |
-| Env | `DATA_DIR=/data`; optional `API_FOOTBALL_KEY` for timely FT scores |
+| Env | `DATA_DIR=/data`; optional `API_FOOTBALL_KEY` (leftover scores only) |
 | Start | `sh /app/deploy/start.sh` (uvicorn + daily pipeline in one container) |
 | Schedule | Built-in: runs at **08:00 UTC** (`CRON_HOUR_UTC`) — no second cron service |
 
 Railway cannot share one volume across two services, so the daily refresh runs **inside** the web container.
 
-For finished-match scores soon after kickoff, set **`API_FOOTBALL_KEY`** (api-sports.io). Without it, past fixtures show **Awaiting score** until football-data.co.uk catches up.
+Finished-match scores come from a **flashscore.mobi** scrape (`sync-scores`) plus football-data.co.uk. API-Football is optional; if that account is suspended, unset `API_FOOTBALL_KEY`.
 
 ## Local development (optional)
 
@@ -46,7 +46,7 @@ Open http://127.0.0.1:8787
 .venv/bin/python -m dg.cli doctor
 .venv/bin/python run_daily.py
 .venv/bin/python -m dg.cli backfill-results --season 2627
-.venv/bin/python -m dg.cli sync-scores   # needs API_FOOTBALL_KEY
+.venv/bin/python -m dg.cli sync-scores   # Flashscore.mobi (needs playwright chromium locally)
 .venv/bin/python -m dg.cli backtest
 ```
 

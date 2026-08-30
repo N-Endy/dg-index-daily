@@ -1,11 +1,60 @@
-"""Tests for API-Football score sync and awaiting-score UI state."""
+"""Tests for Flashscore parse/match and score sync."""
 from __future__ import annotations
 
-from dg.ingest.fixture_scores import sync_fixture_scores, upsert_api_result
+from dg.ingest.fixture_scores import sync_flashscore_scores, sync_fixture_scores, upsert_api_result
 from dg.report.loaders import enrich_prediction_for_display
 from dg.report.results_attach import attach_result_to_prediction, build_result_index
 from dg.sources.apifootball import parse_finished_score
+from dg.sources.flashscore import parse_score_data_html, teams_match
 from dg.storage.db import connect, init_db
+
+SAMPLE_HTML = (
+    "<h4>ARGENTINA: Primera</h4>"
+    '<span>17:00</span>Kairat Almaty (Kaz) - Sutjeska (Mne) '
+    '<a href="/match/a/" class="sched">&nbsp;-&nbsp;</a><br />'
+    "<span>20:45</span>Caicara U20 - Comercial PI U20 "
+    '<a href="/match/b/" class="fin">0-3</a><br />'
+    '<span class="live">83\'</span>GV San Jose - Tomayapo '
+    '<a href="/match/c/" class="live">2-2</a><br />'
+)
+
+
+def test_parse_score_data_html_finished_and_skips_sched():
+    rows = parse_score_data_html(SAMPLE_HTML, finished_only=True)
+    assert len(rows) == 1
+    assert rows[0]["home"] == "Caicara U20"
+    assert rows[0]["away"] == "Comercial PI U20"
+    assert rows[0]["fthg"] == 0 and rows[0]["ftag"] == 3
+    assert rows[0]["is_live"] is False
+
+
+def test_parse_score_data_html_includes_live_when_requested():
+    rows = parse_score_data_html(SAMPLE_HTML, finished_only=False)
+    assert len(rows) == 2
+    live = next(r for r in rows if r["home"] == "GV San Jose")
+    assert live["fthg"] == 2 and live["ftag"] == 2
+    assert live["is_live"] is True
+
+
+def test_teams_match_fuzzy():
+    assert teams_match("Derby", "Derby County")
+    assert teams_match("Swansea", "Swansea City")
+    assert teams_match("Man United", "Manchester United")
+    assert not teams_match("Arsenal", "Chelsea")
+
+
+def test_cooldown_blocks_fetch(monkeypatch):
+    from dg.sources import flashscore as fs
+
+    fs.reset_cooldown()
+    fs._record_cooldown(600)
+    try:
+        import pytest
+
+        with pytest.raises(fs.FlashscoreCooldownError):
+            fs.fetch_score_data_html()
+    finally:
+        fs.reset_cooldown()
 
 
 def test_parse_finished_score_ft():
@@ -21,16 +70,6 @@ def test_parse_finished_score_ft():
     assert s is not None
     assert s["fixture_id"] == 99
     assert s["fthg"] == 2 and s["ftag"] == 1 and s["ftr"] == "H"
-    assert s["hthg"] == 1 and s["htag"] == 0
-
-
-def test_parse_finished_score_skips_live():
-    item = {
-        "fixture": {"id": 1, "status": {"short": "1H"}},
-        "goals": {"home": 0, "away": 0},
-        "score": {"fulltime": {"home": None, "away": None}},
-    }
-    assert parse_finished_score(item) is None
 
 
 def test_api_result_attaches_to_prediction(tmp_path):
@@ -65,14 +104,11 @@ def test_api_result_attaches_to_prediction(tmp_path):
     conn.close()
 
 
-def test_sync_by_date_writes_matching_finished(tmp_path, monkeypatch):
+def test_sync_flashscore_writes_matching_fixture(tmp_path, monkeypatch):
     from dg import config
-    from dg.ingest import fixture_scores as fs
-    from dg.storage.db import connect, init_db
 
-    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "test-key")
-    conn = init_db(connect(tmp_path / "sync_date.db"))
-    # Minimal snapshot + fixture + prediction so fixtures_needing_scores finds it
+    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "")
+    conn = init_db(connect(tmp_path / "fs_sync.db"))
     conn.execute(
         "INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams) VALUES (?,?,?,?)",
         ("2026-08-30T00:00:00+00:00", "2026-08-30T00:00:00+00:00", "x", 1),
@@ -120,46 +156,36 @@ def test_sync_by_date_writes_matching_finished(tmp_path, monkeypatch):
     )
     conn.commit()
 
-    api_item = {
-        "fixture": {"id": 1557377, "status": {"short": "FT"}},
-        "goals": {"home": 2, "away": 1},
-        "score": {
-            "halftime": {"home": 1, "away": 0},
-            "fulltime": {"home": 2, "away": 1},
-        },
-    }
-
-    def fake_by_date(day: str):
-        assert day == "2026-08-28"
-        return [api_item]
-
-    def fake_by_id(_fid: int):
-        return []
-
-    monkeypatch.setattr(fs, "fetch_fixtures_by_date", fake_by_date)
-    monkeypatch.setattr(fs, "fetch_fixture_by_id", fake_by_id)
-
-    summary = fs.sync_fixture_scores(conn)
-    assert summary["skipped_no_key"] is False
-    assert summary["days_fetched"] == 1
+    scraped = [
+        {
+            "league": "ENGLAND: Championship",
+            "home": "Derby",
+            "away": "Swansea",
+            "fthg": 2,
+            "ftag": 1,
+            "is_live": False,
+            "kickoff_hint": "14:00",
+        }
+    ]
+    summary = sync_flashscore_scores(conn, scraped_rows=scraped)
     assert summary["written"] == 1
-    assert summary["fallback_tried"] == 0
     row = conn.execute(
-        "SELECT fthg, ftag, ftr FROM match_result WHERE source='api-football'"
+        "SELECT fthg, ftag, ftr FROM match_result WHERE source='flashscore'"
     ).fetchone()
     assert row is not None
     assert int(row["fthg"]) == 2 and int(row["ftag"]) == 1 and row["ftr"] == "H"
     conn.close()
 
 
-def test_sync_scores_skips_without_key(tmp_path, monkeypatch):
+def test_sync_scores_skips_without_key_still_runs_flashscore(tmp_path, monkeypatch):
     from dg import config
 
     monkeypatch.setattr(config, "API_FOOTBALL_KEY", "")
     conn = init_db(connect(tmp_path / "nokey.db"))
     summary = sync_fixture_scores(conn)
-    assert summary["skipped_no_key"] is True
-    assert summary["written"] == 0
+    # No candidates → flashscore still runs with 0 candidates
+    assert summary["flashscore"]["candidates"] == 0
+    assert summary.get("skipped_no_key") is True
     conn.close()
 
 

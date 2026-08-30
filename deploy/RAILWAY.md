@@ -34,10 +34,10 @@ Optional variables:
 CRON_HOUR_UTC=8          # daily run hour (UTC); default 8
 RUN_DAILY_ON_START=1     # run pipeline once on boot (default 1); set 0 to skip
 FD_SEASON=2627           # football-data.co.uk season for daily results backfill
-API_FOOTBALL_KEY=...     # api-sports.io key — timely FT scores for finished fixtures
+API_FOOTBALL_KEY=...     # optional; leftovers only — unset if the account is suspended
 ```
 
-`API_FOOTBALL_KEY` is required for **Final** scores to appear soon after kickoff. Without it, the board still works; past fixtures show **Awaiting score** until football-data.co.uk catches up (often 1–2 days). Get a free key at [dashboard.api-football.com](https://dashboard.api-football.com/).
+**Final scores:** the daily job scrapes **flashscore.mobi** (Playwright/Chromium in the image) via `sync-scores`, then falls back to football-data.co.uk. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
 
 ### 3. Start command
 
@@ -63,7 +63,7 @@ Health check path: `/healthz`
 
 With `RUN_DAILY_ON_START=1` (default), the first deploy runs `python run_daily.py` shortly after boot. Wait a few minutes, then refresh the site.
 
-To run manually from **web → Shell**:
+To run manually from **web → Console**:
 
 ```
 python run_daily.py
@@ -71,7 +71,7 @@ python -m dg.cli backfill-results --season 2627
 python -m dg.cli sync-scores
 ```
 
-Or the full daily wrapper (pipeline + FD results + API-Football scores):
+Or the full daily wrapper (pipeline + FD results + Flashscore scores):
 
 ```
 sh deploy/cron_daily.sh

@@ -46,8 +46,9 @@ When **Our lean**, **DG model**, and **the book** agree, that is more interestin
 
 After a match has finished, the board shows the full-time score when a result has been synced:
 
-- Prefer **API-Football** (same fixture ids as the DG feed) via the daily `sync-scores` job — needs `API_FOOTBALL_KEY` on the server
-- Fallback: **football-data.co.uk** (often 1–2 days behind on weekends; some leagues never appear)
+- **Flashscore.mobi** scrape on the daily `sync-scores` job (same pattern as MatchPredictor — no API key)
+- Fallback: **football-data.co.uk** CSV backfill (often 1–2 days behind on weekends)
+- Optional: **API-Football** leftovers if `API_FOOTBALL_KEY` is set and the account is healthy
 
 When a score is present you will see:
 
@@ -55,7 +56,7 @@ When a score is present you will see:
 - **Lean hit / Lean miss** on the match-winner lean
 - **Hit / Miss** on market chips when that market can be labelled from the result (goals, BTTS, etc.)
 
-Past kickoff with no result yet shows **Awaiting score** until the next successful sync.
+Past kickoff with no result yet shows **Awaiting score** until the next successful sync. Flashscore markup or Cloudflare challenges can temporarily block scrapes — the job cools down and retries later.
 
 ### Why (key drivers)
 
