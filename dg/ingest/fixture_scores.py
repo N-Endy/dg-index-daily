@@ -157,14 +157,15 @@ def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
     return sorted(offsets, reverse=True)  # 0, -1, -2, …
 
 
-def match_flashscore_row_to_fixture(
+def _score_fixture_row_pair(
+    fx: Dict[str, Any],
     row: Dict[str, Any],
-    candidates: List[Dict[str, Any]],
-    used_ids: Set[int],
-) -> Optional[Tuple[Dict[str, Any], bool]]:
+    *,
+    today: Optional[Any] = None,
+) -> Optional[Tuple[float, bool]]:
     """
-    Find best fixture for a scraped finished score.
-    Returns (fixture, flipped) or None. When flipped, swap fthg/ftag before upsert.
+    Rank a single fixture vs scraped row for auto-match.
+    Returns (rank, flipped) or None if below thresholds.
     """
     home, away = row.get("home") or "", row.get("away") or ""
     sc_league = (row.get("league") or "").strip()
@@ -176,56 +177,102 @@ def match_flashscore_row_to_fixture(
     except (TypeError, ValueError):
         scrape_off_i = None
 
+    day = _fixture_day(fx)
+    if not day:
+        return None
+    try:
+        fday = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+    fx_league = (fx.get("league") or "").strip()
+    lg_sc = 0.0
+    if fx_league and sc_league:
+        lg_sc = league_match_score(fx_league, sc_league)
+        if lg_sc < min_league:
+            return None
+
+    h_direct = team_match_score(home, fx.get("home_name") or "")
+    a_direct = team_match_score(away, fx.get("away_name") or "")
+    h_flip = team_match_score(home, fx.get("away_name") or "")
+    a_flip = team_match_score(away, fx.get("home_name") or "")
+    direct_ok = h_direct >= min_name and a_direct >= min_name
+    flip_ok = h_flip >= min_name and a_flip >= min_name
+    if not direct_ok and not flip_ok:
+        return None
+    direct_avg = (h_direct + a_direct) / 2.0
+    flip_avg = (h_flip + a_flip) / 2.0
+    if flip_ok and (not direct_ok or flip_avg >= direct_avg + 5):
+        name_avg = flip_avg
+        flipped = True
+    else:
+        name_avg = direct_avg
+        flipped = False
+
+    ref_day = today if today is not None else _utcnow().date()
+    if scrape_off_i is not None:
+        expected = ref_day.toordinal() + scrape_off_i
+        day_penalty = abs(fday.toordinal() - expected)
+        if day_penalty > 1:
+            return None
+    else:
+        day_penalty = abs((fday - ref_day).days)
+
+    rank = name_avg + (10.0 * lg_sc) - day_penalty - (2.0 if flipped else 0.0)
+    return rank, flipped
+
+
+def find_flashscore_row_for_fixture(
+    fixture: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    used_fingerprints: Set[str],
+) -> Optional[Tuple[Dict[str, Any], bool]]:
+    """Best unused scraped row for one awaiting fixture (fixture-first sync)."""
+    from dg.sources.flashscore import row_fingerprint
+
+    today = _utcnow().date()
+    best_row: Optional[Dict[str, Any]] = None
+    best_flipped = False
+    best_score = -1.0
+    for row in rows:
+        fp = row_fingerprint(row)
+        if fp in used_fingerprints:
+            continue
+        scored = _score_fixture_row_pair(fixture, row, today=today)
+        if scored is None:
+            continue
+        rank, flipped = scored
+        if rank > best_score:
+            best_score = rank
+            best_row = row
+            best_flipped = flipped
+    if best_row is None:
+        return None
+    return best_row, best_flipped
+
+
+def match_flashscore_row_to_fixture(
+    row: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+    used_ids: Set[int],
+) -> Optional[Tuple[Dict[str, Any], bool]]:
+    """
+    Find best fixture for a scraped finished score.
+    Returns (fixture, flipped) or None. When flipped, swap fthg/ftag before upsert.
+    """
+    today = _utcnow().date()
     best: Optional[Dict[str, Any]] = None
     best_flipped = False
     best_score = -1.0
-    today = _utcnow().date()
 
     for fx in candidates:
         fid = fx.get("fixture_id")
         if fid is None or int(fid) in used_ids:
             continue
-        day = _fixture_day(fx)
-        if not day:
+        scored = _score_fixture_row_pair(fx, row, today=today)
+        if scored is None:
             continue
-        try:
-            fday = datetime.strptime(day, "%Y-%m-%d").date()
-        except ValueError:
-            continue
-
-        fx_league = (fx.get("league") or "").strip()
-        lg_sc = 0.0
-        if fx_league and sc_league:
-            lg_sc = league_match_score(fx_league, sc_league)
-            if lg_sc < min_league:
-                continue
-
-        h_direct = team_match_score(home, fx.get("home_name") or "")
-        a_direct = team_match_score(away, fx.get("away_name") or "")
-        h_flip = team_match_score(home, fx.get("away_name") or "")
-        a_flip = team_match_score(away, fx.get("home_name") or "")
-        direct_ok = h_direct >= min_name and a_direct >= min_name
-        flip_ok = h_flip >= min_name and a_flip >= min_name
-        if not direct_ok and not flip_ok:
-            continue
-        direct_avg = (h_direct + a_direct) / 2.0
-        flip_avg = (h_flip + a_flip) / 2.0
-        if flip_ok and (not direct_ok or flip_avg >= direct_avg + 5):
-            name_avg = flip_avg
-            flipped = True
-        else:
-            name_avg = direct_avg
-            flipped = False
-
-        if scrape_off_i is not None:
-            expected = today.toordinal() + scrape_off_i
-            day_penalty = abs(fday.toordinal() - expected)
-            if day_penalty > 1:
-                continue
-        else:
-            day_penalty = abs((fday - today).days)
-
-        rank = name_avg + (10.0 * lg_sc) - day_penalty - (2.0 if flipped else 0.0)
+        rank, flipped = scored
         if rank > best_score:
             best_score = rank
             best = fx
@@ -300,19 +347,21 @@ def sync_flashscore_scores(
 
     persisted = persist_flashscore_rows(conn, rows)
     summary["persisted"] = persisted
-    used: Set[int] = set()
-    for row in rows:
-        matched = match_flashscore_row_to_fixture(row, candidates, used)
+    from dg.sources.flashscore import row_fingerprint
+
+    used_fps: Set[str] = set()
+    for fx in candidates:
+        matched = find_flashscore_row_for_fixture(fx, rows, used_fps)
         if matched is None:
-            summary["unmatched"] += 1
             continue
-        fx, flipped = matched
+        row, flipped = matched
         score = dict(row)
         if flipped:
             score["fthg"], score["ftag"] = score.get("ftag"), score.get("fthg")
         upsert_score_result(conn, fx, score, source=SOURCE_FLASHSCORE)
-        used.add(int(fx["fixture_id"]))
+        used_fps.add(row_fingerprint(row))
         summary["written"] += 1
+    summary["unmatched"] = max(0, len(rows) - len(used_fps))
 
     conn.commit()
     if summary["written"] == 0 and candidates:

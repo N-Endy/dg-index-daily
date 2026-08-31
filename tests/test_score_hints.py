@@ -6,7 +6,7 @@ from dg.report.score_hints import (
     find_score_near_misses,
     persist_flashscore_rows,
 )
-from dg.sources.flashscore import league_match_score, team_match_score
+from dg.sources.flashscore import league_match_score, team_match_score, teams_match
 from dg.storage.db import connect, init_db
 
 
@@ -20,6 +20,11 @@ def test_team_match_rejects_u18_and_short_subset():
     assert team_match_score("Aston Villa", "Aston Villa U18") == 0
     assert team_match_score("Aston Villa", "Villa") < 80
     assert team_match_score("Aston Villa", "Aston Villa") == 100
+
+
+def test_team_match_prefix_shorthand():
+    assert team_match_score("Rayo Vallecano", "Rayo") >= 80
+    assert teams_match("Rayo Vallecano", "Rayo")
 
 
 def test_league_match_score_token_overlap_and_empty():

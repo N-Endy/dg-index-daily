@@ -307,6 +307,13 @@ def _split_team_qualifiers(normalized: str) -> Tuple[frozenset, str]:
     return frozenset(quals), " ".join(core)
 
 
+def _is_strict_token_prefix(short_tokens: List[str], long_tokens: List[str]) -> bool:
+    """True when short is an exact leading token sequence of long (Rayo ⊂ Rayo Vallecano)."""
+    if not short_tokens or len(short_tokens) > len(long_tokens):
+        return False
+    return long_tokens[: len(short_tokens)] == short_tokens
+
+
 def teams_match(a: str, b: str, *, min_score: Optional[int] = None) -> bool:
     """Fuzzy team name match (qualifier-aware; no loose substring containment)."""
     threshold = int(min_score if min_score is not None else config.FLASHSCORE_NAME_MATCH_MIN)
@@ -330,6 +337,12 @@ def team_match_score(a: str, b: str) -> int:
         return 100
 
     ta, tb = ca.split(), cb.split()
+    # Flashscore shorthand: first-token prefix only (Rayo vs Rayo Vallecano, not Villa vs Aston Villa).
+    if len(ta) != len(tb):
+        short_t, long_t = (ta, tb) if len(ta) < len(tb) else (tb, ta)
+        if _is_strict_token_prefix(short_t, long_t):
+            return 100
+
     set_a, set_b = set(ta), set(tb)
     if set_a <= set_b or set_b <= set_a:
         short, long = (set_a, set_b) if len(set_a) <= len(set_b) else (set_b, set_a)
@@ -711,7 +724,9 @@ def scrape_finished_scores(
                     logger.info(
                         "Flashscore d=%s returned %d finished scores", off, len(day_rows)
                     )
-                    merged.extend(day_rows)
+                    for row in day_rows:
+                        row["day_offset"] = off
+                        merged.append(row)
             finally:
                 browser.close()
     except (FlashscoreBlockedError, FlashscoreCooldownError, FlashscoreUnavailableError):

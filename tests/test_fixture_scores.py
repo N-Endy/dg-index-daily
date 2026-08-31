@@ -5,7 +5,7 @@ from dg.ingest.fixture_scores import sync_flashscore_scores, sync_fixture_scores
 from dg.report.loaders import enrich_prediction_for_display
 from dg.report.results_attach import attach_result_to_prediction, build_result_index
 from dg.sources.apifootball import parse_finished_score
-from dg.sources.flashscore import parse_score_data_html, teams_match
+from dg.sources.flashscore import parse_score_data_html, teams_match, team_match_score
 from dg.storage.db import connect, init_db
 
 SAMPLE_HTML = (
@@ -45,6 +45,7 @@ def test_teams_match_fuzzy():
     assert not teams_match("Arsenal", "Chelsea")
     assert not teams_match("Aston Villa", "Aston Villa U18")
     assert not teams_match("Aston Villa", "Villa")
+    assert team_match_score("Rayo Vallecano", "Rayo") >= 80
 
 
 def test_match_flashscore_row_villa_arsenal(monkeypatch):
@@ -227,6 +228,9 @@ def test_scrape_finished_scores_merges_offsets(monkeypatch):
     assert len(rows) == 2
     homes = {r["home"] for r in rows}
     assert homes == {"Chelsea", "Derby"}
+    offsets = {r["home"]: r.get("day_offset") for r in rows}
+    assert offsets["Chelsea"] == 0
+    assert offsets["Derby"] == -1
 
 
 def test_cooldown_blocks_fetch(monkeypatch):
@@ -360,6 +364,157 @@ def test_sync_flashscore_writes_matching_fixture(tmp_path, monkeypatch):
     ).fetchone()
     assert row is not None
     assert int(row["fthg"]) == 2 and int(row["ftag"]) == 1 and row["ftr"] == "H"
+    conn.close()
+
+
+def _seed_fixture(
+    conn,
+    *,
+    fixture_id: int,
+    date_utc: str,
+    league: str,
+    home_name: str,
+    away_name: str,
+    home_id: int,
+    away_id: int,
+) -> None:
+    conn.execute(
+        "INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams) VALUES (?,?,?,?)",
+        ("2026-08-30T00:00:00+00:00", "2026-08-30T00:00:00+00:00", "x", 1),
+    )
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            fixture_id,
+            date_utc,
+            league,
+            40,
+            home_id,
+            away_id,
+            home_name,
+            away_name,
+            date_utc,
+            date_utc,
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, snapshot_id, model_version, predicted_at,
+            lean, confidence, match_character, score, scores_json, drivers_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            fixture_id,
+            1,
+            "test",
+            date_utc,
+            "Home",
+            "high",
+            "open",
+            0.3,
+            "{}",
+            "[]",
+        ),
+    )
+    conn.commit()
+
+
+def test_sync_flashscore_fixture_first_picks_senior_villa(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "")
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 31, 20, 0, tzinfo=timezone.utc),
+    )
+    conn = init_db(connect(":memory:"))
+    _seed_fixture(
+        conn,
+        fixture_id=1,
+        date_utc="2026-08-31T15:00:00+00:00",
+        league="Premier League",
+        home_name="Aston Villa",
+        away_name="Arsenal",
+        home_id=10,
+        away_id=11,
+    )
+    scraped = [
+        {
+            "league": "ENGLAND: Premier League U18",
+            "home": "Aston Villa U18",
+            "away": "Crystal Palace U18",
+            "fthg": 1,
+            "ftag": 0,
+            "day_offset": 0,
+        },
+        {
+            "league": "ENGLAND: Premier League",
+            "home": "Aston Villa",
+            "away": "Arsenal",
+            "fthg": 0,
+            "ftag": 2,
+            "day_offset": 0,
+        },
+    ]
+    summary = sync_flashscore_scores(conn, scraped_rows=scraped)
+    assert summary["written"] == 1
+    row = conn.execute(
+        "SELECT fthg, ftag FROM match_result WHERE source='flashscore'"
+    ).fetchone()
+    assert int(row["fthg"]) == 0 and int(row["ftag"]) == 2
+    conn.close()
+
+
+def test_sync_flashscore_barca_rayo_shorthand(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "")
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 31, 22, 0, tzinfo=timezone.utc),
+    )
+    conn = init_db(connect(":memory:"))
+    _seed_fixture(
+        conn,
+        fixture_id=2,
+        date_utc="2026-08-31T19:00:00+00:00",
+        league="La Liga",
+        home_name="Barcelona",
+        away_name="Rayo Vallecano",
+        home_id=20,
+        away_id=21,
+    )
+    scraped = [
+        {
+            "league": "SPAIN: LaLiga",
+            "home": "Barcelona",
+            "away": "Rayo",
+            "fthg": 3,
+            "ftag": 1,
+            "day_offset": 0,
+        },
+    ]
+    summary = sync_flashscore_scores(conn, scraped_rows=scraped)
+    assert summary["written"] == 1
+    row = conn.execute(
+        "SELECT fthg, ftag FROM match_result WHERE source='flashscore'"
+    ).fetchone()
+    assert int(row["fthg"]) == 3 and int(row["ftag"]) == 1
     conn.close()
 
 
