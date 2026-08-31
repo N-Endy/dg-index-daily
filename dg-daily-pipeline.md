@@ -4,14 +4,14 @@
 
 ## Overview
 
-Autonomous daily Python pipeline that:
+Autonomous Python pipeline that:
 
 1. Fetches DataGaffer public JSON (`dg_meta.json`, `dg_ratings.json`, fixture feeds)
 2. Snapshots to SQLite with gzip raw archives
 3. Joins football-data.co.uk results for labelled outcomes
 4. Runs explainable `rule_v1` matchup predictions
 5. Serves a plain-language dashboard at `/` and guide at `/guide`
-6. On Railway: web service + daily cron + volume at `/data`
+6. On Railway: web service + WAT match/score scheduler + volume at `/data`
 
 ## Success criteria
 

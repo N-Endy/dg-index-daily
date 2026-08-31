@@ -22,10 +22,10 @@ Short version:
 | Build | `Dockerfile` |
 | Volume | Mount at `/data` on the **web** service only |
 | Env | `DATA_DIR=/data`; optional `OPENAI_API_KEY` (AI Picks); optional `API_FOOTBALL_KEY` (leftover scores) |
-| Start | `sh /app/deploy/start.sh` (uvicorn + daily pipeline in one container) |
-| Schedule | Built-in: runs at **08:00 UTC** (`CRON_HOUR_UTC`) — no second cron service |
+| Start | `sh /app/deploy/start.sh` (uvicorn + WAT scheduler in one container) |
+| Schedule | **Matches/AI** 00:00 & 05:00 WAT; **Flashscore** 06:00, 16:00, 18:00, 20:00, 22:00 WAT — no second cron service |
 
-Railway cannot share one volume across two services, so the daily refresh runs **inside** the web container.
+Railway cannot share one volume across two services, so the refresh schedule runs **inside** the web container.
 
 Finished-match scores come from a **flashscore.mobi** scrape (`sync-scores`) plus football-data.co.uk. API-Football is optional; if that account is suspended, unset `API_FOOTBALL_KEY`.
 

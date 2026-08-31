@@ -8,7 +8,7 @@ This page turns DataGaffer’s **DG Index** style scores and **DG Rating** stren
 - **Not self-learning (yet).** The engine is a transparent **rule-based** score using fixed weights, plus a simple **goal model** (Poisson) built from attack and defence ratings. It does **not** automatically retrain on yesterday’s results.
 - **Percentages are model probabilities**, not “sure things.” They come from expected goals for each side — useful for comparing fixtures, not for claiming precision.
 - **One lens among many.** The DG Index and DG Rating are useful context alongside form, injuries, weather, and your own judgment.
-- **Data refreshes daily** (about 08:00 UTC on Railway). If the banner says data is stale, wait for the next scheduled refresh.
+- **Data refreshes on a Nigerian (WAT) schedule** on Railway: matches / Strongest / AI Picks at **00:00** and **05:00**; Flashscore scores at **06:00**, **16:00**, **18:00**, **20:00**, and **22:00**. If the banner says data is stale, wait for the next scheduled refresh.
 
 ## What each column means
 
@@ -46,7 +46,7 @@ When **Our lean**, **DG model**, and **the book** agree, that is more interestin
 
 After a match has finished, the board shows the full-time score when a result has been synced:
 
-- **Flashscore.mobi** scrape on the daily `sync-scores` job (same pattern as MatchPredictor — no API key)
+- **Flashscore.mobi** scrape on the scheduled `sync-scores` job (6am / 4pm / 6pm / 8pm / 10pm WAT — same pattern as MatchPredictor, no API key)
 - Fallback: **football-data.co.uk** CSV backfill (often 1–2 days behind on weekends)
 - Optional: **API-Football** leftovers if `API_FOOTBALL_KEY` is set and the account is healthy
 
@@ -125,7 +125,7 @@ Fixtures that fail the bar are **omitted**. Goal-model markets are preferred ove
 **AI Picks** takes today’s Strongest leans and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). The model scores each lean 0–100 and must **approve** it. Only leans with approve + score at or above the configured floor (default **70**) are published.
 
 - The AI may only use the fields we send (probability, confidence, DG/book agreement, drivers). It should **not** invent injuries or lineups.
-- No API key → the page explains setup; the daily job stays green.
+- No API key → the page explains setup; the matches job stays green.
 - AI notes are short plain English. The model can be **wrong** — treat this as a stricter filter, not a tip sheet.
 
 ## How to use this properly
@@ -142,4 +142,4 @@ The filter URL is shareable — copy the address bar after Apply to send someone
 
 ## What “stale” means
 
-If the site shows a yellow “stale” banner, the last successful refresh was more than about **36 hours** ago. Numbers may still display, but treat them cautiously until the daily job runs again.
+If the site shows a yellow “stale” banner, the last successful refresh was more than about **36 hours** ago. Numbers may still display, but treat them cautiously until the next matches job runs.
