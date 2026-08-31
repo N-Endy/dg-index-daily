@@ -43,6 +43,65 @@ def test_teams_match_fuzzy():
     assert teams_match("Man United", "Manchester Utd")
     assert teams_match("Man City", "Manchester City")
     assert not teams_match("Arsenal", "Chelsea")
+    assert not teams_match("Aston Villa", "Aston Villa U18")
+    assert not teams_match("Aston Villa", "Villa")
+
+
+def test_match_flashscore_row_villa_arsenal(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 31, 20, 0, tzinfo=timezone.utc),
+    )
+    candidates = [
+        {
+            "fixture_id": 1,
+            "date_utc": "2026-08-31T15:00:00+00:00",
+            "league": "Premier League",
+            "home_name": "Aston Villa",
+            "away_name": "Arsenal",
+        }
+    ]
+    row = {
+        "home": "Aston Villa",
+        "away": "Arsenal",
+        "league": "ENGLAND: Premier League",
+        "fthg": 0,
+        "ftag": 2,
+        "day_offset": 0,
+    }
+    matched = fs.match_flashscore_row_to_fixture(row, candidates, set())
+    assert matched is not None
+    fx, flipped = matched
+    assert fx["fixture_id"] == 1
+    assert flipped is False
+
+    flipped_row = {
+        "home": "Arsenal",
+        "away": "Aston Villa",
+        "league": "ENGLAND: Premier League",
+        "fthg": 2,
+        "ftag": 0,
+        "day_offset": 0,
+    }
+    matched_f = fs.match_flashscore_row_to_fixture(flipped_row, candidates, set())
+    assert matched_f is not None
+    assert matched_f[0]["fixture_id"] == 1
+    assert matched_f[1] is True
+
+    u18 = {
+        "home": "Aston Villa U18",
+        "away": "Crystal Palace U18",
+        "league": "ENGLAND: Premier League U18",
+        "fthg": 1,
+        "ftag": 0,
+        "day_offset": 0,
+    }
+    assert fs.match_flashscore_row_to_fixture(u18, candidates, set()) is None
 
 
 def test_flashscore_url_day_offsets():

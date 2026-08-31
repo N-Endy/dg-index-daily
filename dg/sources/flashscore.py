@@ -212,6 +212,28 @@ def parse_score_data_html(raw_html: str, *, finished_only: bool = True) -> List[
 
 _MAN_EXPAND_NEXT = frozenset({"united", "utd", "city"})
 
+# Harmless longer-name suffixes (Derby ⊂ Derby County).
+_TEAM_SUFFIX_NOISE = frozenset(
+    {
+        "county",
+        "city",
+        "town",
+        "united",
+        "athletic",
+        "athl",
+        "hotspur",
+        "wanderers",
+        "albion",
+        "rovers",
+        "football",
+        "club",
+        "cf",
+        "fc",
+        "afc",
+        "sc",
+    }
+)
+
 
 def flashscore_url(day_offset: int = 0) -> str:
     """Build flashscore.mobi URL; prior days use ?d=-1, ?d=-2, …"""
@@ -251,28 +273,81 @@ def normalize_team_name(name: str) -> str:
     return " ".join(out)
 
 
+def _split_team_qualifiers(normalized: str) -> Tuple[frozenset, str]:
+    """Return (qualifier frozenset, core name without qualifier tokens)."""
+    tokens = [t for t in (normalized or "").split() if t]
+    if not tokens:
+        return frozenset(), ""
+    always = frozenset(
+        {
+            "u16",
+            "u17",
+            "u18",
+            "u19",
+            "u20",
+            "u21",
+            "u22",
+            "u23",
+            "women",
+            "womn",
+            "reserves",
+            "reserve",
+            "res",
+        }
+    )
+    trailing_only = frozenset({"w", "b", "ii"})
+    quals: List[str] = []
+    core: List[str] = []
+    for i, tok in enumerate(tokens):
+        is_last = i == len(tokens) - 1
+        if tok in always or (tok in trailing_only and is_last and len(tokens) > 1):
+            quals.append(tok)
+        else:
+            core.append(tok)
+    return frozenset(quals), " ".join(core)
+
+
 def teams_match(a: str, b: str, *, min_score: Optional[int] = None) -> bool:
-    """Fuzzy / containment team name match (MatchPredictor-inspired)."""
+    """Fuzzy team name match (qualifier-aware; no loose substring containment)."""
     threshold = int(min_score if min_score is not None else config.FLASHSCORE_NAME_MATCH_MIN)
     return team_match_score(a, b) >= threshold
 
 
 def team_match_score(a: str, b: str) -> int:
-    """0–100 similarity after normalize (100 = exact / containment)."""
+    """0–100 similarity after normalize; qualifier mismatch → 0."""
     from thefuzz import fuzz
 
     na, nb = normalize_team_name(a), normalize_team_name(b)
     if not na or not nb:
         return 0
-    if na == nb:
+    qa, ca = _split_team_qualifiers(na)
+    qb, cb = _split_team_qualifiers(nb)
+    if qa != qb:
+        return 0
+    if not ca or not cb:
+        return 0
+    if ca == cb:
         return 100
-    if na in nb or nb in na:
-        return 100
+
+    ta, tb = ca.split(), cb.split()
+    set_a, set_b = set(ta), set(tb)
+    if set_a <= set_b or set_b <= set_a:
+        short, long = (set_a, set_b) if len(set_a) <= len(set_b) else (set_b, set_a)
+        extras = long - short
+        if not extras or extras <= _TEAM_SUFFIX_NOISE:
+            return 100
+        # Incomplete short name (Villa ⊂ Aston Villa) — do not treat as exact
+        return int(fuzz.token_sort_ratio(ca, cb))
+
+    # Short single token vs multi-token: ignore partial/set dominance
+    if (len(ta) == 1 and len(tb) > 1) or (len(tb) == 1 and len(ta) > 1):
+        return int(fuzz.token_sort_ratio(ca, cb))
+
     return int(
         max(
-            fuzz.token_sort_ratio(na, nb),
-            fuzz.token_set_ratio(na, nb),
-            fuzz.partial_ratio(na, nb),
+            fuzz.token_sort_ratio(ca, cb),
+            fuzz.token_set_ratio(ca, cb),
+            fuzz.partial_ratio(ca, cb),
         )
     )
 
@@ -297,8 +372,13 @@ _LEAGUE_STOPWORDS = frozenset(
         "and",
     }
 )
-# Drop country prefixes when other meaningful tokens remain (Flashscore "ENGLAND: …").
-_LEAGUE_COUNTRY_NOISE = frozenset(
+
+_LEAGUE_ALIASES = {
+    "laliga": ("la", "liga"),
+    "ligue": ("ligue",),
+}
+
+_LEAGUE_COUNTRIES = frozenset(
     {
         "england",
         "scotland",
@@ -331,11 +411,91 @@ _LEAGUE_COUNTRY_NOISE = frozenset(
         "china",
         "australia",
         "canada",
+        "uganda",
+        "fiji",
+        "kenya",
+        "ghana",
+        "nigeria",
+        "egypt",
+        "morocco",
+        "algeria",
+        "tunisia",
+        "senegal",
+        "cameroon",
+        "chile",
+        "colombia",
+        "peru",
+        "ecuador",
+        "paraguay",
+        "uruguay",
+        "bolivia",
+        "venezuela",
+        "india",
+        "indonesia",
+        "thailand",
+        "vietnam",
+        "malaysia",
+        "singapore",
+        "saudi",
+        "arabia",
+        "qatar",
+        "uae",
+        "israel",
+        "croatia",
+        "serbia",
+        "czech",
+        "slovakia",
+        "hungary",
+        "finland",
+        "iceland",
+        "cyprus",
+        "malta",
+        "luxembourg",
+        "georgia",
+        "armenia",
+        "azerbaijan",
+        "kazakhstan",
+        "uzbekistan",
+        "iran",
+        "iraq",
+        "jordan",
+        "lebanon",
+        "syria",
+        "yemen",
+        "oman",
+        "bahrain",
+        "kuwait",
+        "new",
+        "zealand",
+        "south",
+        "africa",
+        "zimbabwe",
+        "zambia",
+        "botswana",
+        "namibia",
+        "mozambique",
+        "angola",
+        "ethiopia",
+        "sudan",
+        "tanzania",
+        "rwanda",
+        "burundi",
+        "congo",
+        "ivory",
+        "coast",
+        "mali",
+        "burkina",
+        "faso",
     }
+)
+
+_LEAGUE_YOUTH = frozenset(
+    {"u16", "u17", "u18", "u19", "u20", "u21", "u22", "u23", "youth", "junior", "juniors"}
 )
 
 
 def _league_tokens(league: str) -> set[str]:
+    """Tokenize league labels; keep country tokens for conflict checks."""
     text = unicodedata.normalize("NFKD", league or "")
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = text.lower()
@@ -344,36 +504,78 @@ def _league_tokens(league: str) -> set[str]:
     text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return set()
-    parts = [p for p in text.split() if p and p not in _LEAGUE_STOPWORDS]
-    if len(parts) > 1:
-        parts = [p for p in parts if p not in _LEAGUE_COUNTRY_NOISE]
-    return set(parts)
+    raw = [p for p in text.split() if p]
+    expanded: List[str] = []
+    for p in raw:
+        alias = _LEAGUE_ALIASES.get(p)
+        if alias:
+            expanded.extend(alias)
+        else:
+            expanded.append(p)
+    meaningful = [p for p in expanded if p not in _LEAGUE_STOPWORDS]
+    if meaningful:
+        return set(meaningful)
+    return set(expanded)
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
 
 
 def league_match_score(a: str, b: str) -> float:
     """
-    0–1 league label similarity (MatchPredictor GetLeagueMatchScore style).
-    Empty either side → 0.0.
+    0–1 league label similarity.
+    Same competition with one-sided country (Premier League vs ENGLAND: Premier League) → high.
+    Conflicting countries or youth mismatch → low.
     """
     words_a = _league_tokens(a)
     words_b = _league_tokens(b)
     if not words_a or not words_b:
         return 0.0
-    key_a = "|".join(sorted(words_a))
-    key_b = "|".join(sorted(words_b))
-    if key_a == key_b:
+    if words_a == words_b:
         return 1.0
-    shorter, longer = (words_a, words_b) if len(words_a) <= len(words_b) else (words_b, words_a)
-    matched = 0.0
-    for token in shorter:
-        if token in longer:
-            matched += 1.0
+
+    youth_a = words_a & _LEAGUE_YOUTH
+    youth_b = words_b & _LEAGUE_YOUTH
+    if youth_a != youth_b:
+        return 0.25
+
+    countries_a = words_a & _LEAGUE_COUNTRIES
+    countries_b = words_b & _LEAGUE_COUNTRIES
+    if countries_a and countries_b and countries_a.isdisjoint(countries_b):
+        return min(0.35, _jaccard(words_a, words_b))
+
+    comp_a = words_a - _LEAGUE_COUNTRIES - _LEAGUE_YOUTH
+    comp_b = words_b - _LEAGUE_COUNTRIES - _LEAGUE_YOUTH
+    if not comp_a or not comp_b:
+        return _jaccard(words_a, words_b)
+    if comp_a == comp_b:
+        # Bare "Premier League" vs "UGANDA: Premier League": competition matches but
+        # Flashscore country is not a usual home for that API label.
+        only_a = countries_a - countries_b
+        only_b = countries_b - countries_a
+        if comp_a == {"premier"}:
+            allowed = frozenset({"england", "scotland"})
+            foreign = (only_a | only_b) - allowed
+            if foreign:
+                return 0.35
+        return 1.0
+    # Soft prefix match for long competition tokens
+    score = _jaccard(comp_a, comp_b)
+    for token in list(comp_a):
+        if token in comp_b or len(token) < 4:
             continue
-        if len(token) >= 4 and any(
-            lt.startswith(token) or token.startswith(lt) for lt in longer if len(lt) >= 4
+        if any(
+            lt.startswith(token) or token.startswith(lt)
+            for lt in comp_b
+            if len(lt) >= 4
         ):
-            matched += 0.85
-    return matched / len(shorter)
+            score = max(score, 0.85)
+    return min(1.0, score)
 
 
 def row_fingerprint(row: Dict[str, Any]) -> str:
