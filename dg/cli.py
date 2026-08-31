@@ -19,7 +19,7 @@ from dg.model.rules import predict_upcoming
 from dg.model.supervised import train_if_ready
 from dg.quality.checks import QualityReport, run_quality_checks
 from dg.quality.doctor import run_doctor
-from dg.report.best_leans import today_utc
+from dg.report.loaders import today_wat
 from dg.report.render import render_report, write_report
 from dg.sources import datagaffer as dg_src
 from dg.storage.db import db_session, init_db, latest_snapshot, snapshot_exists
@@ -32,7 +32,7 @@ def setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
     handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
-    log_path = config.LOGS_DIR / f"run_{datetime.now(timezone.utc).date().isoformat()}.log"
+    log_path = config.LOGS_DIR / f"run_{today_wat()}.log"
     handlers.append(logging.FileHandler(log_path, encoding="utf-8"))
     logging.basicConfig(level=level, format=fmt, handlers=handlers, force=True)
 
@@ -319,7 +319,7 @@ def cmd_sync_scores(args: argparse.Namespace) -> int:
 def cmd_vet_ai_picks(args: argparse.Namespace) -> int:
     setup_logging(args.verbose)
     init_db()
-    day = (args.day or "").strip() or today_utc()
+    day = (args.day or "").strip() or today_wat()
     with db_session() as conn:
         try:
             summary = vet_strongest_for_day(conn, day=day)

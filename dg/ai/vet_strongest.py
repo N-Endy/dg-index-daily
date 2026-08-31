@@ -247,9 +247,9 @@ def vet_strongest_for_day(
     Load strongest picks for day, screen with LLM, persist approvals.
     chat_fn: injectable (system, user) -> str for tests.
     """
-    from dg.report.best_leans import today_utc
+    from dg.report.loaders import today_wat
 
-    day_key = day or today_utc()
+    day_key = day or today_wat()
     model = config.OPENAI_MODEL
     summary: Dict[str, Any] = {
         "day": day_key,

@@ -5,16 +5,20 @@ from typing import Any, Dict, Optional
 
 from dg import config
 from dg.ai.vet_strongest import load_ai_picks
-from dg.report.best_leans import today_utc
-from dg.report.loaders import _fixture_sort_key, get_connection, load_dashboard_context
+from dg.report.loaders import (
+    _fixture_sort_key,
+    get_connection,
+    load_dashboard_context,
+    today_wat,
+)
 
 
 def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
     """
     Context for /ai-picks.
-    Uses today's UTC day by default; shows stored approvals from ai_pick.
+    Uses today's WAT day by default; shows stored approvals from ai_pick.
     """
-    day_key = day or today_utc()
+    day_key = day or today_wat()
     # Reuse dashboard meta (stale banner, generated_at_display) for the day filter
     ctx = load_dashboard_context(date_filter=day_key)
     has_key = bool(config.OPENAI_API_KEY)

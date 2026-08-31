@@ -5,12 +5,15 @@ import gzip
 import json
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from dg import config
 from dg.http import fetch
+
+_OPERATIONAL_TZ = ZoneInfo("Africa/Lagos")
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,7 @@ class ArchivedPayload:
 
 
 def _archive_dir(day: Optional[date] = None) -> Path:
-    day = day or datetime.now(timezone.utc).date()
+    day = day or datetime.now(_OPERATIONAL_TZ).date()
     d = config.RAW_DIR / day.isoformat()
     d.mkdir(parents=True, exist_ok=True)
     return d

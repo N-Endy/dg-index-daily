@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dg import config
 from dg.model.registry import model_version
 from dg.quality.checks import QualityReport
+from dg.report.loaders import kickoff_date_wat, today_wat
 
 
 def render_report(
@@ -22,7 +22,7 @@ def render_report(
     backtest: Optional[Dict[str, Any]] = None,
     run_status: str = "ok",
 ) -> str:
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = today_wat()
     mv = model_version()
     lines: List[str] = []
     lines.append(f"# DG Index Daily Report — {day}")
@@ -65,10 +65,10 @@ def render_report(
     if not predictions:
         lines.append("_No upcoming fixtures matched._")
     else:
-        # Group by date (UTC day)
+        # Group by kickoff date (WAT)
         by_day: Dict[str, List[Dict[str, Any]]] = {}
         for p in predictions:
-            d = (p.get("date_utc") or "")[:10] or "unknown"
+            d = kickoff_date_wat(p.get("date_utc"))
             by_day.setdefault(d, []).append(p)
         for d in sorted(by_day):
             lines.append(f"### {d}")
@@ -168,7 +168,7 @@ def render_report(
 
 def write_report(markdown: str, day: Optional[str] = None) -> Path:
     config.ensure_dirs()
-    day = day or datetime.now(timezone.utc).date().isoformat()
+    day = day or today_wat()
     path = config.REPORTS_DIR / f"report_{day}.md"
     path.write_text(markdown, encoding="utf-8")
     return path

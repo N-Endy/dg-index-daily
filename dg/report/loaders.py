@@ -235,7 +235,7 @@ def load_dashboard_context(
         leagues: set = set()
         for r in rows:
             d = dict(r)
-            day = (d.get("date_utc") or "")[:10]
+            day = kickoff_date_wat(d.get("date_utc"))
             league = d.get("league") or ""
             if day:
                 dates.add(day)
@@ -471,6 +471,19 @@ def _to_wat(dt: datetime) -> datetime:
     return dt.astimezone(DISPLAY_TZ)
 
 
+def today_wat() -> str:
+    """Operational calendar day in Nigerian time (matches cron schedule)."""
+    return datetime.now(DISPLAY_TZ).date().isoformat()
+
+
+def kickoff_date_wat(date_utc: Optional[str]) -> str:
+    """Calendar day of kickoff in WAT (YYYY-MM-DD)."""
+    dt = _parse_utc(date_utc)
+    if dt is None:
+        return (date_utc or "")[:10] or "unknown"
+    return _to_wat(dt).date().isoformat()
+
+
 def _kickoff_in_past(date_utc: Optional[str]) -> bool:
     kickoff = _parse_utc(date_utc)
     if kickoff is None:
@@ -504,7 +517,7 @@ def group_predictions_by_date(
 ) -> List[Tuple[str, List[Dict[str, Any]]]]:
     by_day: Dict[str, List[Dict[str, Any]]] = {}
     for p in predictions:
-        day = (p.get("date_utc") or "")[:10] or "unknown"
+        day = kickoff_date_wat(p.get("date_utc"))
         by_day.setdefault(day, []).append(p)
     out: List[Tuple[str, List[Dict[str, Any]]]] = []
     for d in sorted(by_day):

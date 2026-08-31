@@ -150,12 +150,12 @@ def test_ai_picks_page_renders_without_key(web_client, monkeypatch):
 def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     from dg import config
     from dg.ai.vet_strongest import replace_ai_picks_for_day
-    from dg.report.best_leans import today_utc
+    from dg.report.loaders import today_wat
     from dg.storage.db import connect, init_db
 
     monkeypatch.setattr(config, "OPENAI_API_KEY", "present")
     conn = init_db(connect(config.DB_PATH))
-    day = today_utc()
+    day = today_wat()
     replace_ai_picks_for_day(
         conn,
         day,

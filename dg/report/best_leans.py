@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from dg.model.markets import MARKET_ORDER
@@ -10,6 +9,7 @@ from dg.report.loaders import (
     _fixture_sort_key,
     enrich_prediction_for_display,
     load_dashboard_context,
+    today_wat,
 )
 from dg.web.plain_language import (
     agreement_hint,
@@ -39,10 +39,6 @@ POISSON_BACKED = frozenset(
 )
 
 _AGREE_RANK = {"aligned": 2, "partial": 1, "unknown": 0, "split": -1}
-
-
-def today_utc() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -310,8 +306,8 @@ def build_strongest_picks(predictions: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
-    """Load today's (or given UTC date) dashboard rows and attach strongest picks."""
-    day = date or today_utc()
+    """Load today's (or given WAT date) dashboard rows and attach strongest picks."""
+    day = date or today_wat()
     ctx = load_dashboard_context(date_filter=day)
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
     picks = build_strongest_picks(enriched)
