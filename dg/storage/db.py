@@ -38,9 +38,14 @@ _STRENGTH_COLS = (
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     config.ensure_dirs()
     path = db_path or config.DB_PATH
-    conn = sqlite3.connect(str(path))
+    timeout = float(config.SQLITE_BUSY_TIMEOUT_SEC)
+    conn = sqlite3.connect(str(path), timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    busy_ms = int(max(0, timeout) * 1000)
+    conn.execute(f"PRAGMA busy_timeout = {busy_ms}")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 

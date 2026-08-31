@@ -347,6 +347,7 @@ def sync_flashscore_scores(
 
     persisted = persist_flashscore_rows(conn, rows)
     summary["persisted"] = persisted
+    conn.commit()
     from dg.sources.flashscore import row_fingerprint
 
     used_fps: Set[str] = set()

@@ -169,6 +169,10 @@ AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "120"))
 AI_VET_MAX_TOKENS = int(os.environ.get("AI_VET_MAX_TOKENS", "16000"))
 AI_VET_BATCH_SIZE = int(os.environ.get("AI_VET_BATCH_SIZE", "20"))
 
+# SQLite (web + batch jobs share one file on Railway volume)
+SQLITE_BUSY_TIMEOUT_SEC = float(os.environ.get("SQLITE_BUSY_TIMEOUT_SEC", "30"))
+FLASHSCORE_PERSIST_BATCH = int(os.environ.get("FLASHSCORE_PERSIST_BATCH", "250"))
+
 # Exit codes
 EXIT_OK = 0
 EXIT_PARTIAL = 1

@@ -582,3 +582,39 @@ def test_enrich_not_awaiting_when_completed():
     out = enrich_prediction_for_display(pred)
     assert out["awaiting_score"] is False
     assert out["lean_result_key"] == "hit"
+
+
+def test_connect_uses_wal_journal(tmp_path):
+    conn = connect(tmp_path / "wal_test.db")
+    try:
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() == "wal"
+    finally:
+        conn.close()
+
+
+def test_persist_flashscore_rows_batches(tmp_path, monkeypatch):
+    from dg import config
+    from dg.report.score_hints import persist_flashscore_rows
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "persist_batch.db")
+    monkeypatch.setattr(config, "FLASHSCORE_PERSIST_BATCH", 50)
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    rows = [
+        {
+            "home": f"Home{i}",
+            "away": f"Away{i}",
+            "fthg": 1,
+            "ftag": 0,
+            "league": "TEST",
+            "day_offset": 0,
+        }
+        for i in range(300)
+    ]
+    n = persist_flashscore_rows(conn, rows)
+    assert n == 300
+    count = conn.execute("SELECT COUNT(*) FROM flashscore_row").fetchone()[0]
+    assert int(count) == 300
+    conn.close()

@@ -28,7 +28,26 @@ def persist_flashscore_rows(
 ) -> int:
     """Upsert finished scrape rows by fingerprint. Returns rows written/updated."""
     now = _utcnow_iso()
+    batch_size = max(1, int(config.FLASHSCORE_PERSIST_BATCH))
+    sql = """
+        INSERT INTO flashscore_row (
+            scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint, fingerprint
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fingerprint) DO UPDATE SET
+            scraped_at=excluded.scraped_at,
+            day_offset=COALESCE(excluded.day_offset, flashscore_row.day_offset),
+            kickoff_hint=COALESCE(excluded.kickoff_hint, flashscore_row.kickoff_hint)
+        """
+    pending: List[tuple] = []
     n = 0
+
+    def flush() -> None:
+        if not pending:
+            return
+        conn.executemany(sql, pending)
+        conn.commit()
+        pending.clear()
+
     for row in rows:
         home = (row.get("home") or "").strip()
         away = (row.get("away") or "").strip()
@@ -41,16 +60,7 @@ def persist_flashscore_rows(
             continue
         fp = row_fingerprint(row)
         off = row.get("day_offset", day_offset)
-        conn.execute(
-            """
-            INSERT INTO flashscore_row (
-                scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint, fingerprint
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(fingerprint) DO UPDATE SET
-                scraped_at=excluded.scraped_at,
-                day_offset=COALESCE(excluded.day_offset, flashscore_row.day_offset),
-                kickoff_hint=COALESCE(excluded.kickoff_hint, flashscore_row.kickoff_hint)
-            """,
+        pending.append(
             (
                 now,
                 off,
@@ -61,9 +71,12 @@ def persist_flashscore_rows(
                 ftag,
                 row.get("kickoff_hint") or "",
                 fp,
-            ),
+            )
         )
         n += 1
+        if len(pending) >= batch_size:
+            flush()
+    flush()
     return n
 
 

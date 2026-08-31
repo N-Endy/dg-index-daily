@@ -91,6 +91,8 @@ python -m dg.cli backfill-results --season 2627
 python -m dg.cli sync-scores
 ```
 
+Manual `sync-scores` is safe while the site is live (SQLite WAL). If you see `database is locked`, retry once — you do not need to stop uvicorn.
+
 Or the wrappers:
 
 ```
