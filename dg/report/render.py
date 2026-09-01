@@ -143,8 +143,10 @@ def render_report(
                 ll = m.get("logloss")
                 brier_s = f"{brier:.4f}" if brier is not None else "n/a"
                 ll_s = f"{ll:.4f}" if ll is not None else "n/a"
+                hr = m.get("hit_rate")
+                hr_s = f", hit_rate={hr:.1%}" if hr is not None else ""
                 lines.append(
-                    f"  - `{name}`: Brier={brier_s}, logloss={ll_s} (n={m['n']})"
+                    f"  - `{name}`: Brier={brier_s}, logloss={ll_s} (n={m['n']}{hr_s})"
                 )
         if backtest.get("n", 0) < 50:
             lines.append(
@@ -152,14 +154,20 @@ def render_report(
             )
         mkt = backtest.get("markets") or {}
         if mkt:
-            lines.append("- Per-market Brier (where labels exist):")
+            lines.append("- Per-market Brier and hit-rate (where labels exist):")
             for mk, srcs in sorted(mkt.items()):
                 parts = []
                 for src, stats in srcs.items():
                     b = stats.get("brier")
                     bn = stats.get("n", 0)
+                    hr = stats.get("hit_rate")
                     if b is not None and bn:
-                        parts.append(f"{src}={b:.4f} (n={bn})")
+                        seg = f"{src}={b:.4f} (n={bn})"
+                        if hr is not None:
+                            seg += f", hit={hr:.1%}"
+                        parts.append(seg)
+                    elif hr is not None and stats.get("n_graded"):
+                        parts.append(f"{src} hit={hr:.1%} (n={stats['n_graded']})")
                 if parts:
                     lines.append(f"  - `{mk}`: {', '.join(parts)}")
     lines.append("")

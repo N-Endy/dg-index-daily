@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from dg import config
 from dg.features.matchup import book_lean, build_matchup, sim_lean
 from dg.features.team import build_team_features
 from dg.model.goals import league_avg_ortg, predict_goals
@@ -64,6 +65,9 @@ def _blend_1x2(
     poisson: Dict[str, Any],
     style_score: float,
     cfg: Dict[str, Any],
+    *,
+    conn=None,
+    model_version: Optional[str] = None,
 ) -> Dict[str, float]:
     """Tilt Poisson 1X2 probabilities with a bounded style composite."""
     ph = float(poisson.get("home", 1 / 3))
@@ -72,12 +76,18 @@ def _blend_1x2(
     scale = float(cfg.get("style_tilt_scale", 0.18))
     cap = float(cfg.get("style_tilt_cap", 0.12))
     tilt = max(-cap, min(cap, style_score * scale))
-    # Move mass between home and away; keep draw, then renormalize
     ph2 = max(0.02, ph + tilt)
     pa2 = max(0.02, pa - tilt)
     pd2 = max(0.02, pd)
     s = ph2 + pd2 + pa2
-    return {"home": ph2 / s, "draw": pd2 / s, "away": pa2 / s}
+    blended = {"home": ph2 / s, "draw": pd2 / s, "away": pa2 / s}
+    if config.SUPERVISED_ENABLED and conn is not None and model_version:
+        from dg.model.supervised import apply_calibration, load_calibration
+
+        params = load_calibration(conn, model_version=model_version)
+        if params:
+            blended = apply_calibration(blended, params)
+    return blended
 
 
 def _lean_from_probs(probs: Dict[str, float]) -> str:
@@ -141,7 +151,7 @@ def predict_fixture(
 
     league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
     goal_probs = predict_goals(matchup, league_avg=league_avg)
-    blended = _blend_1x2(goal_probs, score, cfg)
+    blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
     lean = _lean_from_probs(blended)
     confidence = _confidence(score, matchup, cfg, probs=blended)
 

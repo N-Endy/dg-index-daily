@@ -8,6 +8,7 @@ from dg.model.markets import MARKET_ORDER
 from dg.report.loaders import (
     _fixture_sort_key,
     enrich_prediction_for_display,
+    get_connection,
     load_dashboard_context,
     today_wat,
 )
@@ -101,9 +102,9 @@ def _agreement_gate(lean: Optional[str], dg_lean: Any, book_lean: Any) -> bool:
     return all(checks)
 
 
-def _agreement_tier(lean: Optional[str], dg_lean: Any, book_lean: Any) -> Tuple[str, str]:
+def _agreement_tier(lean: Optional[str], dg_lean: Any, book_lean: Any) -> Tuple[str, str, list, int]:
     hint = agreement_hint(lean, dg_lean if dg_lean else None, book_lean if book_lean else None)
-    return hint["key"], hint["label"]
+    return hint["key"], hint["label"], hint.get("sources", []), hint.get("n_sources", 0)
 
 
 def _passes_hard_gates(
@@ -128,14 +129,15 @@ def _passes_hard_gates(
 def _rank_tuple(
     *,
     agreement_key: str,
+    n_sources: int,
     market_key: str,
     prob: float,
     score: Optional[float],
-) -> Tuple[int, int, float, float]:
+) -> Tuple[int, int, int, float, float]:
     agree = _AGREE_RANK.get(agreement_key, 0)
     poisson = 1 if market_key in POISSON_BACKED else 0
     abs_score = abs(score) if score is not None else 0.0
-    return (agree, poisson, prob, abs_score)
+    return (agree, n_sources, poisson, prob, abs_score)
 
 
 def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -153,12 +155,12 @@ def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, An
     ):
         return None
     assert lean is not None and prob is not None
-    agree_key, agree_label = _agreement_tier(lean, dg_lean, book_lean)
+    agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
     score = _as_float(m.get("score"))
     drivers = list(m.get("drivers") or [])
     return {
         "market_key": key,
-        "market_label": market_chip_label(key, m.get("label")),
+        "market_label": market_chip_label(key, m.get("label"), line=m.get("line")),
         "lean": lean,
         "lean_plain": market_lean_plain(lean, key),
         "confidence": (conf or "").lower(),
@@ -170,10 +172,13 @@ def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, An
         "why": [driver_plain(d) for d in drivers],
         "agreement_key": agree_key,
         "agreement_label": agree_label,
+        "agreement_sources": agree_sources,
+        "agreement_n_sources": agree_n,
         "dg_lean": dg_lean,
         "book_lean": book_lean,
         "_rank": _rank_tuple(
             agreement_key=agree_key,
+            n_sources=agree_n,
             market_key=key,
             prob=prob,
             score=score,
@@ -196,7 +201,7 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
     ):
         return None
     assert lean is not None and prob is not None
-    agree_key, agree_label = _agreement_tier(lean, dg_lean, book_lean)
+    agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
     score = _as_float(pred.get("score"))
     drivers = list(pred.get("drivers") or [])
     why = pred.get("why")
@@ -216,10 +221,13 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
         "why": list(why),
         "agreement_key": agree_key,
         "agreement_label": agree_label,
+        "agreement_sources": agree_sources,
+        "agreement_n_sources": agree_n,
         "dg_lean": dg_lean,
         "book_lean": book_lean,
         "_rank": _rank_tuple(
             agreement_key=agree_key,
+            n_sources=agree_n,
             market_key="match_1x2",
             prob=prob,
             score=score,
@@ -256,6 +264,9 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "fixture_id": pred.get("fixture_id"),
         "home_name": pred.get("home_name"),
         "away_name": pred.get("away_name"),
+        "home_logo": pred.get("home_logo"),
+        "away_logo": pred.get("away_logo"),
+        "is_neutral": bool(pred.get("is_neutral")),
         "league": pred.get("league"),
         "date_utc": pred.get("date_utc"),
         "kickoff_display": pred.get("kickoff_display") or "",
@@ -280,7 +291,12 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         else:
             labels = {}
             if pred.get("result_row"):
-                labels = _market_labels(pred["result_row"])
+                from dg.model.markets import extract_market_lines
+
+                labels = _market_labels(
+                    pred["result_row"],
+                    extract_market_lines(_markets_dict(pred)),
+                )
             rk, rl = market_lean_result(best.get("lean"), labels.get(best["market_key"]))
         out["lean_result_key"] = rk
         out["lean_result_label"] = rl if rk == "pending" else (
@@ -299,7 +315,7 @@ def build_strongest_picks(predictions: List[Dict[str, Any]]) -> List[Dict[str, A
         pick = select_strongest_lean(pred)
         if pick:
             picks.append(pick)
-    picks.sort(key=lambda p: p.get("_rank", (0, 0, 0.0, 0.0)), reverse=True)
+    picks.sort(key=lambda p: p.get("_rank", (0, 0, 0, 0.0, 0.0)), reverse=True)
     for p in picks:
         p.pop("_rank", None)
     return picks
@@ -307,8 +323,15 @@ def build_strongest_picks(predictions: List[Dict[str, Any]]) -> List[Dict[str, A
 
 def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
     """Load today's (or given WAT date) dashboard rows and attach strongest picks."""
+    from dg.report.scoreboard import recent_strongest_performance
+
     day = date or today_wat()
     ctx = load_dashboard_context(date_filter=day)
+    conn = get_connection()
+    try:
+        scoreboard = recent_strongest_performance(conn)
+    finally:
+        conn.close()
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
     picks = build_strongest_picks(enriched)
     picks.sort(key=_fixture_sort_key)
@@ -319,4 +342,5 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
         "picks": picks,
         "n_fixtures": len(enriched),
         "n_picks": len(picks),
+        "scoreboard": scoreboard,
     }

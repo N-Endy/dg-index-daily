@@ -19,8 +19,10 @@ from dg.report.loaders import (
     group_predictions_by_date,
     load_dashboard_context,
     parse_market_filters,
+    today_wat,
 )
 from dg.report.score_hints import apply_score_hints_to_predictions, confirm_score_link
+from dg.report.status import load_status_context
 from dg.storage.db import db_session
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -65,7 +67,13 @@ def dashboard(
     market_filters = parse_market_filters(m or [])
 
     # HTML forms submit empty strings for "Any" selects; treat as unset
-    date = (date or "").strip() or None
+    raw_date = date
+    if date is None:
+        date = today_wat()
+    elif (date or "").strip().lower() == "all":
+        date = None
+    else:
+        date = (date or "").strip() or None
     league = (league or "").strip() or None
     min_conf = (min_conf or "").strip() or None
 
@@ -82,6 +90,21 @@ def dashboard(
         else:
             steps = (0.55, 0.60, 0.65, 0.70)
             parsed_min_prob = min(steps, key=lambda s: abs(s - parsed_min_prob))
+
+    today = today_wat()
+    has_active_filters = bool(
+        league
+        or market_filters
+        or parsed_min_prob
+        or min_conf
+        or (raw_date is not None and (raw_date or "").strip().lower() == "all")
+        or (
+            raw_date is not None
+            and (raw_date or "").strip()
+            and (raw_date or "").strip().lower() != "all"
+            and (raw_date or "").strip() != today
+        )
+    )
 
     ctx = load_dashboard_context(
         date_filter=date,
@@ -101,6 +124,7 @@ def dashboard(
             **ctx,
             "grouped": grouped,
             "n_shown": len(enriched),
+            "has_active_filters": has_active_filters,
             "score_link_unlocked": _score_link_authorized(request),
         },
     )
@@ -177,6 +201,12 @@ def score_link_confirm(request: Request, body: ScoreConfirmBody):
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page(request: Request):
+    ctx = load_status_context()
+    return TEMPLATES.TemplateResponse(request, "status.html", ctx)
 
 
 @app.get("/guide", response_class=HTMLResponse)

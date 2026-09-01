@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Status · DG Index Daily{% endblock %}
+{% block content %}
+
+<section class="page-intro rail-fade">
+  <p class="eyebrow">Operations</p>
+  <h1>Pipeline status</h1>
+  <p class="lede">Last refresh, score sources, and data counts — for debugging stale banners and cron health.</p>
+</section>
+
+{% if stale %}
+<div class="banner banner-warn" role="status">
+  Snapshot is <strong>stale</strong>
+  {% if staleness_hours %}(about {{ '%.0f'|format(staleness_hours) }} hours old){% endif %}.
+</div>
+{% endif %}
+
+<section class="status-grid">
+  <article class="status-card">
+    <h2>Latest snapshot</h2>
+    <dl>
+      <div><dt>Generated</dt><dd>{{ generated_at_display }}</dd></div>
+      {% if staleness_hours is not none %}
+      <div><dt>Age</dt><dd>{{ '%.1f'|format(staleness_hours) }}h</dd></div>
+      {% endif %}
+      <div><dt>Snapshot ID</dt><dd>{{ snapshot_id or '—' }}</dd></div>
+      <div><dt>Teams</dt><dd>{{ n_teams }}</dd></div>
+      <div><dt>Fixtures</dt><dd>{{ n_fixtures }}</dd></div>
+      <div><dt>Predictions</dt><dd>{{ n_predictions }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="status-card">
+    <h2>Last pipeline run</h2>
+    {% if last_run %}
+    <dl>
+      <div><dt>Started</dt><dd>{{ last_run.started_at or '—' }}</dd></div>
+      <div><dt>Finished</dt><dd>{{ last_run.finished_at or '—' }}</dd></div>
+      <div><dt>Status</dt><dd><span class="status-pill status-{{ last_run.status }}">{{ last_run.status }}</span></dd></div>
+      {% if last_run.exit_code is not none %}
+      <div><dt>Exit code</dt><dd>{{ last_run.exit_code }}</dd></div>
+      {% endif %}
+      {% if last_run.message %}
+      <div><dt>Message</dt><dd>{{ last_run.message }}</dd></div>
+      {% endif %}
+    </dl>
+    {% if last_run.stages %}
+    <details>
+      <summary>Stages</summary>
+      <pre class="status-pre">{{ last_run.stages | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+    {% else %}
+    <p class="muted">No run_log entries yet.</p>
+    {% endif %}
+  </article>
+
+  <article class="status-card">
+    <h2>Scores &amp; AI</h2>
+    <dl>
+      <div><dt>Flashscore last scrape</dt><dd>{{ flashscore_last_scrape or '—' }}</dd></div>
+      <div><dt>AI picks today ({{ today_wat }})</dt><dd>{{ ai_picks_today }}</dd></div>
+      <div><dt>OpenAI key</dt><dd>{{ 'configured' if has_openai_key else 'not set' }}</dd></div>
+    </dl>
+    {% if score_sources %}
+    <h3 class="status-subhead">Results by source</h3>
+    <ul class="status-list">
+      {% for row in score_sources %}
+      <li><strong>{{ row.source }}</strong> — {{ row.n }} rows</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No graded match_result rows yet.</p>
+    {% endif %}
+  </article>
+</section>
+
+<p class="status-foot"><a href="/">← Back to dashboard</a></p>
+
+{% endblock %}

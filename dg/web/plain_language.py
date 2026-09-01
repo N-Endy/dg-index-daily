@@ -82,23 +82,32 @@ def agreement_hint(
 ) -> dict:
     """
     Compare our lean to DG sim and book.
-    Returns {key, label} where key is aligned | partial | split | unknown.
+    Returns {key, label, sources, n_sources}.
     """
     ours = (lean or "").strip()
     if not ours:
-        return {"key": "unknown", "label": "No lean"}
-    matches = []
+        return {"key": "unknown", "label": "No lean", "sources": [], "n_sources": 0}
+    sources: list = []
+    matches: list = []
     if dg_sim:
+        sources.append("dg")
         matches.append(dg_sim == ours)
     if book:
+        sources.append("book")
         matches.append(book == ours)
     if not matches:
-        return {"key": "unknown", "label": "No market compare"}
+        return {"key": "unknown", "label": "No market compare", "sources": [], "n_sources": 0}
     if all(matches):
-        return {"key": "aligned", "label": "Aligned"}
+        if len(sources) == 2:
+            label = "Model + book agree"
+        elif "dg" in sources:
+            label = "DG model only"
+        else:
+            label = "Book only"
+        return {"key": "aligned", "label": label, "sources": sources, "n_sources": len(sources)}
     if any(matches):
-        return {"key": "partial", "label": "Partial"}
-    return {"key": "split", "label": "Split"}
+        return {"key": "partial", "label": "Partial", "sources": sources, "n_sources": len(sources)}
+    return {"key": "split", "label": "Split", "sources": sources, "n_sources": len(sources)}
 
 
 _CHIP_LABELS = {
@@ -116,9 +125,21 @@ _CHIP_LABELS = {
 }
 
 
-def market_chip_label(key: Optional[str], fallback: Optional[str] = None) -> str:
+def market_chip_label(
+    key: Optional[str],
+    fallback: Optional[str] = None,
+    line: Optional[float] = None,
+) -> str:
     if key and key in _CHIP_LABELS:
-        return _CHIP_LABELS[key]
+        base = _CHIP_LABELS[key]
+        if line is not None and key in (
+            "corners_9_5",
+            "shots_25_5",
+            "sot_8_5",
+            "cards_3_5",
+        ):
+            return f"{base} {line}"
+        return base
     return fallback or (key or "Market")
 
 

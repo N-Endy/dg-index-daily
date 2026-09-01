@@ -87,6 +87,9 @@ CREATE TABLE IF NOT EXISTS fixture (
     home_name TEXT,
     away_name TEXT,
     round TEXT,
+    home_logo TEXT,
+    away_logo TEXT,
+    is_neutral INTEGER,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     raw_json TEXT
@@ -232,3 +235,14 @@ CREATE TABLE IF NOT EXISTS flashscore_row (
 );
 
 CREATE INDEX IF NOT EXISTS idx_flashscore_row_scraped ON flashscore_row(scraped_at);
+
+CREATE TABLE IF NOT EXISTS model_calibration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fitted_at TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    slope REAL NOT NULL,
+    intercept REAL NOT NULL,
+    n_labels INTEGER NOT NULL,
+    UNIQUE (model_version, outcome)
+);

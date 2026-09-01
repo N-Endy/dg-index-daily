@@ -31,6 +31,28 @@ def _ensure_columns(conn) -> None:
         if col not in rating_cols:
             conn.execute(f"ALTER TABLE dg_team_rating ADD COLUMN {col} REAL")
 
+    fixture_cols = _table_cols(conn, "fixture")
+    for col in ("home_logo", "away_logo"):
+        if col not in fixture_cols:
+            conn.execute(f"ALTER TABLE fixture ADD COLUMN {col} TEXT")
+    if "is_neutral" not in fixture_cols:
+        conn.execute("ALTER TABLE fixture ADD COLUMN is_neutral INTEGER")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS model_calibration (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fitted_at TEXT NOT NULL,
+            model_version TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            slope REAL NOT NULL,
+            intercept REAL NOT NULL,
+            n_labels INTEGER NOT NULL,
+            UNIQUE (model_version, outcome)
+        )
+        """
+    )
+
 
 def backfill_strength_from_raw(conn) -> int:
     """

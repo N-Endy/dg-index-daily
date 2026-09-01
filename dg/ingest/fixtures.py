@@ -63,6 +63,9 @@ def ingest_fixtures(
             continue
         home_name = home.get("name")
         away_name = away.get("name")
+        home_logo = fx.get("home_logo") or home.get("logo")
+        away_logo = fx.get("away_logo") or away.get("logo")
+        is_neutral = 1 if fx.get("is_neutral") else 0
         league = _nested(fx, "league", "name") or ""
         league_id = _nested(fx, "league", "id") or fx.get("league_id")
         date_utc = fx.get("date") or ""
@@ -82,7 +85,9 @@ def ingest_fixtures(
                 """
                 UPDATE fixture SET
                     date_utc=?, league=?, league_id=?, home_id=?, away_id=?,
-                    home_name=?, away_name=?, round=?, last_seen_at=?, raw_json=?
+                    home_name=?, away_name=?, round=?,
+                    home_logo=?, away_logo=?, is_neutral=?,
+                    last_seen_at=?, raw_json=?
                 WHERE fixture_id=?
                 """,
                 (
@@ -94,6 +99,9 @@ def ingest_fixtures(
                     home_name,
                     away_name,
                     fx.get("round"),
+                    home_logo,
+                    away_logo,
+                    is_neutral,
                     now,
                     json.dumps(fx),
                     fixture_id,
@@ -104,8 +112,10 @@ def ingest_fixtures(
                 """
                 INSERT INTO fixture (
                     fixture_id, date_utc, league, league_id, home_id, away_id,
-                    home_name, away_name, round, first_seen_at, last_seen_at, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    home_name, away_name, round,
+                    home_logo, away_logo, is_neutral,
+                    first_seen_at, last_seen_at, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     fixture_id,
@@ -117,6 +127,9 @@ def ingest_fixtures(
                     home_name,
                     away_name,
                     fx.get("round"),
+                    home_logo,
+                    away_logo,
+                    is_neutral,
                     now,
                     now,
                     json.dumps(fx),

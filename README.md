@@ -6,8 +6,9 @@ Data refreshes automatically each day on Railway. You do not need to run scripts
 ## Use the site (what you care about)
 
 1. Open your Railway URL (or `http://127.0.0.1:8787` locally).
-2. Skim the dashboard; filter by date or league if you want.
+2. Skim the dashboard (defaults to **today in WAT**; use **All dates** in the filter for the full archive); filter by league if you want.
 3. Read **How to read this** (`/guide`) for what lean, confidence, and match style mean.
+4. Check **Status** (`/status`) if the stale banner appears or you need last-run diagnostics.
 
 Predictions are **directional / exploratory** — rule-based, not a self-learning tip service, and **not betting advice**.
 
@@ -49,9 +50,21 @@ Open http://127.0.0.1:8787
 .venv/bin/python -m dg.cli sync-scores   # Flashscore.mobi (needs playwright chromium locally)
 .venv/bin/python -m dg.cli vet-ai-picks  # LLM screen of Strongest → AI Picks (needs OPENAI_API_KEY)
 .venv/bin/python -m dg.cli backtest
+.venv/bin/python -m dg.cli calibrate  # Fit Platt 1X2 calibration (gated; does not enable live use)
 ```
 
 Exit codes: `0` success, `1` partial, `2` critical.
+
+### Web routes
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Dashboard (default: today WAT) |
+| `/strongest` | High-bar daily shortlist + recent hit-rate banner |
+| `/ai-picks` | LLM-vetted subset of Strongest |
+| `/status` | Pipeline health, snapshot age, score sources |
+| `/guide` | How to read the board |
+| `/healthz` | Railway healthcheck (unchanged) |
 
 ### macOS launchd (local only)
 

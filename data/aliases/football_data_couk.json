@@ -9,6 +9,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Aalesund",
+      "league_code": "Eliteserien",
+      "team_id": 757,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Aberdeen",
       "league_code": "SC0",
       "team_id": 252,
@@ -107,9 +114,58 @@
       "method": "seed"
     },
     {
+      "source_name": "Atl. San Luis",
+      "league_code": "Liga MX",
+      "team_id": 2314,
+      "confidence": 0.83,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Atlante",
+      "league_code": "Liga MX",
+      "team_id": 2312,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Atlas",
+      "league_code": "Liga MX",
+      "team_id": 2283,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Atletico GO",
+      "league_code": "Serie A",
+      "team_id": 1062,
+      "confidence": 0.91,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Atletico-MG",
+      "league_code": "Serie A",
+      "team_id": 1062,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Austria Vienna",
+      "league_code": "Bundesliga",
+      "team_id": 601,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Auxerre",
       "league_code": "F1",
       "team_id": 108,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Bahia",
+      "league_code": "Serie A",
+      "team_id": 118,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -149,6 +205,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Bodo/Glimt",
+      "league_code": "Eliteserien",
+      "team_id": 327,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Bologna",
       "league_code": "I1",
       "team_id": 500,
@@ -163,9 +226,30 @@
       "method": "exact"
     },
     {
+      "source_name": "Botafogo RJ",
+      "league_code": "Serie A",
+      "team_id": 120,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Bournemouth",
       "league_code": "E0",
       "team_id": 35,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Bragantino",
+      "league_code": "Serie A",
+      "team_id": 794,
+      "confidence": 0.87,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Brann",
+      "league_code": "Eliteserien",
+      "team_id": 319,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -189,6 +273,13 @@
       "team_id": 56,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Brommapojkarna",
+      "league_code": "Allsvenskan",
+      "team_id": 371,
+      "confidence": 0.9,
+      "method": "fuzzy"
     },
     {
       "source_name": "Burnley",
@@ -240,6 +331,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Chapecoense-SC",
+      "league_code": "Serie A",
+      "team_id": 132,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Charleroi",
       "league_code": "B1",
       "team_id": 736,
@@ -261,6 +359,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Club America",
+      "league_code": "Liga MX",
+      "team_id": 2287,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Club Brugge",
       "league_code": "B1",
       "team_id": 569,
@@ -268,9 +373,30 @@
       "method": "fuzzy"
     },
     {
+      "source_name": "Club Tijuana",
+      "league_code": "Liga MX",
+      "team_id": 2280,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Como",
       "league_code": "I1",
       "team_id": 895,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Corinthians",
+      "league_code": "Serie A",
+      "team_id": 131,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Coritiba",
+      "league_code": "Serie A",
+      "team_id": 147,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -282,11 +408,32 @@
       "method": "exact"
     },
     {
+      "source_name": "Cruz Azul",
+      "league_code": "Liga MX",
+      "team_id": 2295,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Cruzeiro",
+      "league_code": "Serie A",
+      "team_id": 135,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Crystal Palace",
       "league_code": "E0",
       "team_id": 52,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Degerfors",
+      "league_code": "Allsvenskan",
+      "team_id": 2172,
+      "confidence": 0.86,
+      "method": "fuzzy"
     },
     {
       "source_name": "Den Haag",
@@ -301,6 +448,13 @@
       "team_id": 69,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Djurgarden",
+      "league_code": "Allsvenskan",
+      "team_id": 364,
+      "confidence": 0.83,
+      "method": "fuzzy"
     },
     {
       "source_name": "Dundee",
@@ -322,6 +476,13 @@
       "team_id": 797,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Elfsborg",
+      "league_code": "Allsvenskan",
+      "team_id": 372,
+      "confidence": 0.84,
+      "method": "fuzzy"
     },
     {
       "source_name": "Erzurumspor",
@@ -408,11 +569,32 @@
       "method": "exact"
     },
     {
+      "source_name": "Flamengo RJ",
+      "league_code": "Serie A",
+      "team_id": 127,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Fluminense",
+      "league_code": "Serie A",
+      "team_id": 124,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "For Sittard",
       "league_code": "N1",
       "team_id": 205,
       "confidence": 0.85,
       "method": "fuzzy"
+    },
+    {
+      "source_name": "Fredrikstad",
+      "league_code": "Eliteserien",
+      "team_id": 2149,
+      "confidence": 1.0,
+      "method": "exact"
     },
     {
       "source_name": "Frosinone",
@@ -425,6 +607,13 @@
       "source_name": "Fulham",
       "league_code": "E0",
       "team_id": 36,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "GAIS",
+      "league_code": "Allsvenskan",
+      "team_id": 2170,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -485,6 +674,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Goteborg",
+      "league_code": "Allsvenskan",
+      "team_id": 366,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Goztep",
       "league_code": "T1",
       "team_id": 994,
@@ -492,9 +688,37 @@
       "method": "fuzzy"
     },
     {
+      "source_name": "Grasshoppers",
+      "league_code": "Super League",
+      "team_id": 1013,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Grazer AK",
+      "league_code": "Bundesliga",
+      "team_id": 4256,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Gremio",
+      "league_code": "Serie A",
+      "team_id": 130,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Groningen",
       "league_code": "N1",
       "team_id": 202,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Guadalajara Chivas",
+      "league_code": "Liga MX",
+      "team_id": 2278,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -506,10 +730,52 @@
       "method": "exact"
     },
     {
+      "source_name": "Hacken",
+      "league_code": "Allsvenskan",
+      "team_id": 367,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Halmstad",
+      "league_code": "Allsvenskan",
+      "team_id": 766,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Ham-Kam",
+      "league_code": "Eliteserien",
+      "team_id": 2159,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "HamKam",
+      "league_code": "Eliteserien",
+      "team_id": 2159,
+      "confidence": 0.92,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Hammarby",
+      "league_code": "Allsvenskan",
+      "team_id": 363,
+      "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Hannover",
       "league_code": "D2",
       "team_id": 166,
       "confidence": 0.84,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Hartberg",
+      "league_code": "Bundesliga",
+      "team_id": 1072,
+      "confidence": 0.8,
       "method": "fuzzy"
     },
     {
@@ -555,11 +821,32 @@
       "method": "seed"
     },
     {
+      "source_name": "Internacional",
+      "league_code": "Serie A",
+      "team_id": 119,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Ipswich",
       "league_code": "E0",
       "team_id": 57,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Juarez",
+      "league_code": "Liga MX",
+      "team_id": 2298,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Juventude",
+      "league_code": "Serie A",
+      "team_id": 496,
+      "confidence": 0.82,
+      "method": "fuzzy"
     },
     {
       "source_name": "Juventus",
@@ -569,10 +856,24 @@
       "method": "exact"
     },
     {
+      "source_name": "KFUM Oslo",
+      "league_code": "Eliteserien",
+      "team_id": 2143,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Kaiserslautern",
       "league_code": "D2",
       "team_id": 745,
       "confidence": 0.85,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Kalmar",
+      "league_code": "Allsvenskan",
+      "team_id": 374,
+      "confidence": 0.8,
       "method": "fuzzy"
     },
     {
@@ -607,6 +908,20 @@
       "source_name": "Kortrijk",
       "league_code": "B1",
       "team_id": 734,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Kristiansund",
+      "league_code": "Eliteserien",
+      "team_id": 320,
+      "confidence": 0.89,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Lausanne",
+      "league_code": "Super League",
+      "team_id": 1014,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -667,6 +982,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Lillestrom",
+      "league_code": "Eliteserien",
+      "team_id": 321,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Lincoln",
       "league_code": "E1",
       "team_id": 1379,
@@ -688,6 +1010,20 @@
       "method": "exact"
     },
     {
+      "source_name": "Lugano",
+      "league_code": "Super League",
+      "team_id": 606,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Luzern",
+      "league_code": "Super League",
+      "team_id": 644,
+      "confidence": 0.8,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Lyon",
       "league_code": "F1",
       "team_id": 80,
@@ -698,6 +1034,13 @@
       "source_name": "Malaga",
       "league_code": "SP1",
       "team_id": 535,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Malmo FF",
+      "league_code": "Allsvenskan",
+      "team_id": 375,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -751,9 +1094,30 @@
       "method": "exact"
     },
     {
+      "source_name": "Mirassol",
+      "league_code": "Serie A",
+      "team_id": 7848,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Molde",
+      "league_code": "Eliteserien",
+      "team_id": 329,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Monaco",
       "league_code": "F1",
       "team_id": 91,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Monterrey",
+      "league_code": "Liga MX",
+      "team_id": 2282,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -793,6 +1157,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Necaxa",
+      "league_code": "Liga MX",
+      "team_id": 2288,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Newcastle",
       "league_code": "E0",
       "team_id": 34,
@@ -828,6 +1199,13 @@
       "method": "seed"
     },
     {
+      "source_name": "Orgryte",
+      "league_code": "Allsvenskan",
+      "team_id": 2166,
+      "confidence": 0.82,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Osasuna",
       "league_code": "SP1",
       "team_id": 727,
@@ -845,6 +1223,20 @@
       "source_name": "PSV Eindhoven",
       "league_code": "N1",
       "team_id": 197,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Pachuca",
+      "league_code": "Liga MX",
+      "team_id": 2292,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Palmeiras",
+      "league_code": "Serie A",
+      "team_id": 121,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -884,6 +1276,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Puebla",
+      "league_code": "Liga MX",
+      "team_id": 2291,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "QPR",
       "league_code": "E1",
       "team_id": 72,
@@ -912,9 +1311,23 @@
       "method": "exact"
     },
     {
+      "source_name": "Remo",
+      "league_code": "Serie A",
+      "team_id": 1198,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Rennes",
       "league_code": "F1",
       "team_id": 94,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Ried",
+      "league_code": "Bundesliga",
+      "team_id": 1028,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -933,9 +1346,23 @@
       "method": "exact"
     },
     {
+      "source_name": "Rosenborg",
+      "league_code": "Eliteserien",
+      "team_id": 331,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Samsunspor",
       "league_code": "T1",
       "team_id": 3603,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sandefjord",
+      "league_code": "Eliteserien",
+      "team_id": 332,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -947,11 +1374,46 @@
       "method": "exact"
     },
     {
+      "source_name": "Santos",
+      "league_code": "Serie A",
+      "team_id": 128,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Santos Laguna",
+      "league_code": "Liga MX",
+      "team_id": 2285,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sao Paulo",
+      "league_code": "Serie A",
+      "team_id": 126,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sarpsborg 08",
+      "league_code": "Eliteserien",
+      "team_id": 333,
+      "confidence": 0.89,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Sassuolo",
       "league_code": "I1",
       "team_id": 488,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Servette",
+      "league_code": "Super League",
+      "team_id": 2184,
+      "confidence": 0.84,
+      "method": "fuzzy"
     },
     {
       "source_name": "Sevilla",
@@ -966,6 +1428,13 @@
       "team_id": 62,
       "confidence": 1.0,
       "method": "seed"
+    },
+    {
+      "source_name": "Sirius",
+      "league_code": "Allsvenskan",
+      "team_id": 370,
+      "confidence": 1.0,
+      "method": "exact"
     },
     {
       "source_name": "Southampton",
@@ -1017,9 +1486,30 @@
       "method": "fuzzy"
     },
     {
+      "source_name": "St. Gallen",
+      "league_code": "Super League",
+      "team_id": 1011,
+      "confidence": 0.86,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Start",
+      "league_code": "Eliteserien",
+      "team_id": 334,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Strasbourg",
       "league_code": "F1",
       "team_id": 95,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Sturm Graz",
+      "league_code": "Bundesliga",
+      "team_id": 637,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -1041,6 +1531,20 @@
       "source_name": "Telstar",
       "league_code": "N1",
       "team_id": 427,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Tigres UANL",
+      "league_code": "Liga MX",
+      "team_id": 2279,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Toluca",
+      "league_code": "Liga MX",
+      "team_id": 2281,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -1073,6 +1577,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Tromso",
+      "league_code": "Eliteserien",
+      "team_id": 325,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Twente",
       "league_code": "N1",
       "team_id": 415,
@@ -1101,6 +1612,20 @@
       "method": "exact"
     },
     {
+      "source_name": "Valerenga",
+      "league_code": "Eliteserien",
+      "team_id": 326,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Vasteras SK",
+      "league_code": "Allsvenskan",
+      "team_id": 2241,
+      "confidence": 0.88,
+      "method": "fuzzy"
+    },
+    {
       "source_name": "Venezia",
       "league_code": "I1",
       "team_id": 517,
@@ -1108,9 +1633,23 @@
       "method": "exact"
     },
     {
+      "source_name": "Viking",
+      "league_code": "Eliteserien",
+      "team_id": 759,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Villarreal",
       "league_code": "SP1",
       "team_id": 533,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
+      "source_name": "Vitoria",
+      "league_code": "Serie A",
+      "team_id": 136,
       "confidence": 1.0,
       "method": "exact"
     },
@@ -1150,6 +1689,13 @@
       "method": "exact"
     },
     {
+      "source_name": "Wolfsberger AC",
+      "league_code": "Bundesliga",
+      "team_id": 1025,
+      "confidence": 1.0,
+      "method": "exact"
+    },
+    {
       "source_name": "Wolfsburg",
       "league_code": "D2",
       "team_id": 161,
@@ -1169,6 +1715,20 @@
       "team_id": 1837,
       "confidence": 1.0,
       "method": "exact"
+    },
+    {
+      "source_name": "Young Boys",
+      "league_code": "Super League",
+      "team_id": 565,
+      "confidence": 0.83,
+      "method": "fuzzy"
+    },
+    {
+      "source_name": "Zurich",
+      "league_code": "Super League",
+      "team_id": 783,
+      "confidence": 0.8,
+      "method": "fuzzy"
     }
   ]
 }

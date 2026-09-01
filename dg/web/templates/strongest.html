@@ -25,6 +25,16 @@
 </div>
 {% else %}
 
+{% if scoreboard and scoreboard.n_graded %}
+<div class="banner banner-info scoreboard-banner" role="status">
+  Last {{ scoreboard.window_days }} days:
+  <strong>{{ scoreboard.n_hits }}</strong> of <strong>{{ scoreboard.n_graded }}</strong> featured leans hit
+  {% if scoreboard.hit_rate is not none %}({{ '%.0f'|format(scoreboard.hit_rate * 100) }}%){% endif %},
+  where results are available.
+  <span class="coverage-note">{{ scoreboard.coverage_note }}</span>
+</div>
+{% endif %}
+
 <div class="strongest-meta">
   <p>
     {{ n_picks }} of {{ n_fixtures }} fixture{% if n_fixtures != 1 %}s{% endif %} cleared the bar today.
@@ -51,11 +61,9 @@
       </div>
 
       <div class="strip-main">
-        <h3 class="matchup">
-          <span class="team home">{{ p.home_name }}</span>
-          <span class="vs">vs</span>
-          <span class="team away">{{ p.away_name }}</span>
-        </h3>
+        {% with home_name=p.home_name, away_name=p.away_name, home_logo=p.home_logo, away_logo=p.away_logo, is_neutral=p.is_neutral %}
+        {% include "_team_matchup.html" %}
+        {% endwith %}
         <div class="lean-block lean-settle">
           <p class="featured-market">{{ p.market_label }}</p>
           <p class="lean">{{ p.lean_plain }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}

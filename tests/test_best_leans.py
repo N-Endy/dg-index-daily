@@ -236,6 +236,39 @@ def test_omits_empty_markets():
     assert build_strongest_picks([_base_pred(), _base_pred(fixture_id=2)]) == []
 
 
+def test_prefers_two_source_agreement_at_equal_prob():
+    """Two-source agreement outranks one-source at equal probability."""
+    one_source = _base_pred(
+        fixture_id=1,
+        markets={
+            "corners_9_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.35,
+                "prob": 0.68,
+                "dg_lean": "Over",
+                "book_lean": None,
+            }
+        },
+    )
+    two_source = _base_pred(
+        fixture_id=2,
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.35,
+                "prob": 0.68,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        },
+    )
+    picks = build_strongest_picks([one_source, two_source])
+    assert picks[0]["fixture_id"] == 2
+    assert picks[0]["agreement_n_sources"] == 2
+
+
 def test_build_strongest_picks_ranks_by_strength():
     weak = _base_pred(
         fixture_id=1,

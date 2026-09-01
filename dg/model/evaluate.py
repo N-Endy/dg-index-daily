@@ -6,6 +6,8 @@ import logging
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
+from dg.model.markets import DEFAULT_MARKET_LINES, extract_market_lines
+
 logger = logging.getLogger(__name__)
 
 _CONF_STRENGTH = {"low": 0.40, "medium": 0.50, "high": 0.60}
@@ -67,7 +69,6 @@ def _market_pos_prob(m: Dict[str, Any], pos: str) -> float:
     if raw is not None:
         try:
             p_lean = float(raw)
-            # prob is for the lean side
             return p_lean if lean == pos else (1.0 - p_lean)
         except (TypeError, ValueError):
             pass
@@ -86,18 +87,21 @@ def _probs_from_json(probs_json: Optional[str], lean: str, confidence: str) -> T
     return lean_to_probs(lean, confidence)
 
 
-def _market_labels(mr: Any) -> Dict[str, Optional[str]]:
+def _market_labels(mr: Any, lines: Optional[Dict[str, float]] = None) -> Dict[str, Optional[str]]:
     """Derive outcome labels from match_result columns when present."""
+    line_map = lines or {}
     labels: Dict[str, Optional[str]] = {}
 
     fthg, ftag = mr["fthg"] if mr["fthg"] is not None else None, mr["ftag"] if mr["ftag"] is not None else None
     if fthg is not None and ftag is not None:
         total = int(fthg) + int(ftag)
-        labels["goals_2_5"] = "Over" if total > 2.5 else "Under"
-        labels["goals_3_5"] = "Over" if total > 3.5 else "Under"
+        labels["goals_2_5"] = "Over" if total > line_map.get("goals_2_5", DEFAULT_MARKET_LINES["goals_2_5"]) else "Under"
+        labels["goals_3_5"] = "Over" if total > line_map.get("goals_3_5", DEFAULT_MARKET_LINES["goals_3_5"]) else "Under"
         labels["btts"] = "Yes" if int(fthg) > 0 and int(ftag) > 0 else "No"
-        labels["team_goals_home_1_5"] = "Over" if int(fthg) > 1.5 else "Under"
-        labels["team_goals_away_1_5"] = "Over" if int(ftag) > 1.5 else "Under"
+        home_line = line_map.get("team_goals_home_1_5", DEFAULT_MARKET_LINES["team_goals_home_1_5"])
+        away_line = line_map.get("team_goals_away_1_5", DEFAULT_MARKET_LINES["team_goals_away_1_5"])
+        labels["team_goals_home_1_5"] = "Over" if int(fthg) > home_line else "Under"
+        labels["team_goals_away_1_5"] = "Over" if int(ftag) > away_line else "Under"
     else:
         labels["goals_2_5"] = None
         labels["goals_3_5"] = None
@@ -114,33 +118,38 @@ def _market_labels(mr: Any) -> Dict[str, Optional[str]]:
             labels["fh_1x2"] = "Away"
         else:
             labels["fh_1x2"] = "Draw"
-        labels["fh_over_0_5"] = "Over" if ht > 0.5 else "Under"
+        fh_line = line_map.get("fh_over_0_5", DEFAULT_MARKET_LINES["fh_over_0_5"])
+        labels["fh_over_0_5"] = "Over" if ht > fh_line else "Under"
     else:
         labels["fh_1x2"] = None
         labels["fh_over_0_5"] = None
 
     hc, ac = mr["hc"], mr["ac"]
     if hc is not None and ac is not None:
-        labels["corners_9_5"] = "Over" if int(hc) + int(ac) > 9.5 else "Under"
+        corners_line = line_map.get("corners_9_5", DEFAULT_MARKET_LINES["corners_9_5"])
+        labels["corners_9_5"] = "Over" if int(hc) + int(ac) > corners_line else "Under"
     else:
         labels["corners_9_5"] = None
 
     hs, a_sh = mr["hs"], mr["as_shots"]
     if hs is not None and a_sh is not None:
-        labels["shots_25_5"] = "Over" if int(hs) + int(a_sh) > 25.5 else "Under"
+        shots_line = line_map.get("shots_25_5", DEFAULT_MARKET_LINES["shots_25_5"])
+        labels["shots_25_5"] = "Over" if int(hs) + int(a_sh) > shots_line else "Under"
     else:
         labels["shots_25_5"] = None
 
     hst, ast = mr["hst"], mr["ast"]
     if hst is not None and ast is not None:
-        labels["sot_8_5"] = "Over" if int(hst) + int(ast) > 8.5 else "Under"
+        sot_line = line_map.get("sot_8_5", DEFAULT_MARKET_LINES["sot_8_5"])
+        labels["sot_8_5"] = "Over" if int(hst) + int(ast) > sot_line else "Under"
     else:
         labels["sot_8_5"] = None
 
     hy, ay, hr, ar = mr["hy"], mr["ay"], mr["hr"], mr["ar"]
     if None not in (hy, ay):
         cards = int(hy) + int(ay) + int(hr or 0) + int(ar or 0)
-        labels["cards_3_5"] = "Over" if cards > 3.5 else "Under"
+        cards_line = line_map.get("cards_3_5", DEFAULT_MARKET_LINES["cards_3_5"])
+        labels["cards_3_5"] = "Over" if cards > cards_line else "Under"
     else:
         labels["cards_3_5"] = None
 
@@ -148,13 +157,13 @@ def _market_labels(mr: Any) -> Dict[str, Optional[str]]:
 
 
 def _score_market_row(
-    market_metrics: Dict[str, Dict[str, List[float]]],
+    market_metrics: Dict[str, Dict[str, Any]],
     *,
     markets: Dict[str, Any],
     labels: Dict[str, Optional[str]],
     book_odds: Optional[Dict[str, Any]],
 ) -> None:
-    """Accumulate Brier for each market that has a label and a stored lean."""
+    """Accumulate Brier and hit-rate for each market that has a label and a stored lean."""
     book_odds = book_odds or {}
 
     binary_pos = {
@@ -175,11 +184,13 @@ def _score_market_row(
         m = markets.get(key)
         if not label or not isinstance(m, dict) or not m.get("lean"):
             continue
-        bucket = market_metrics.setdefault(key, {"rule": [], "book": [], "dg_sim": []})
+        bucket = market_metrics.setdefault(
+            key, {"rule": [], "book": [], "dg_sim": [], "rule_hits": []}
+        )
         p = _market_pos_prob(m, pos)
         bucket["rule"].append(_brier_binary(p, label == pos))
+        bucket["rule_hits"].append(1 if label == m.get("lean") else 0)
 
-        # Book two-way when both sides present
         if key == "goals_2_5" and book_odds.get("over_2_5") and book_odds.get("under_2_5"):
             try:
                 po, _pu = _devig2(float(book_odds["over_2_5"]), float(book_odds["under_2_5"]))
@@ -201,18 +212,17 @@ def _score_market_row(
 
         dg = m.get("dg_lean")
         if dg in (pos, "Under", "No", "Over", "Yes"):
-            # Soft 0.62 toward DG lean
             p_dg = 0.62 if dg == pos else 0.38
             bucket["dg_sim"].append(_brier_binary(p_dg, label == pos))
 
-    # FH 1X2 (three-way)
     fh_label = labels.get("fh_1x2")
     fh_m = markets.get("fh_1x2")
     if fh_label and isinstance(fh_m, dict) and fh_m.get("lean"):
-        bucket = market_metrics.setdefault("fh_1x2", {"rule": [], "book": [], "dg_sim": []})
+        bucket = market_metrics.setdefault(
+            "fh_1x2", {"rule": [], "book": [], "dg_sim": [], "rule_hits": []}
+        )
         outcome = {"Home": "H", "Draw": "D", "Away": "A"}[fh_label]
         if fh_m.get("prob") is not None and fh_m.get("lean"):
-            # Soft three-way from lean + stored win prob
             try:
                 p_win = float(fh_m["prob"])
                 rem = max(0.02, (1.0 - p_win) / 2.0)
@@ -230,6 +240,7 @@ def _score_market_row(
         else:
             rule_p = lean_to_probs(str(fh_m["lean"]), str(fh_m.get("confidence") or "low"))
         bucket["rule"].append(_brier(rule_p, outcome))
+        bucket["rule_hits"].append(1 if fh_label == fh_m.get("lean") else 0)
         if book_odds.get("fh_home_win") and book_odds.get("fh_draw") and book_odds.get("fh_away_win"):
             try:
                 book_p = _devig(
@@ -265,6 +276,8 @@ def _accumulate_row(
     rule_p = _probs_from_json(probs_json, lean, confidence)
     metrics["rule"]["brier"].append(_brier(rule_p, outcome))
     metrics["rule"]["logloss"].append(_logloss(rule_p, outcome))
+    lean_map = {"H": "Home", "D": "Draw", "A": "Away"}
+    metrics["rule"].setdefault("hits", []).append(1 if lean == lean_map.get(outcome) else 0)
 
     if closing_home and closing_draw and closing_away:
         book_p = _devig(float(closing_home), float(closing_draw), float(closing_away))
@@ -367,12 +380,11 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             _score_market_row(
                 market_metrics,
                 markets=markets,
-                labels=_market_labels(r),
+                labels=_market_labels(r, extract_market_lines(markets)),
                 book_odds=book_odds,
             )
 
     if n == 0:
-        # Retrospective: apply rule_v2 + markets to finished results with resolved team_ids
         from dg.features.matchup import build_matchup
         from dg.features.team import build_team_features
         from dg.model.goals import league_avg_ortg, predict_goals
@@ -439,7 +451,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             _score_market_row(
                 market_metrics,
                 markets=markets,
-                labels=_market_labels(mr),
+                labels=_market_labels(mr, extract_market_lines(markets)),
                 book_odds={},
             )
 
@@ -453,17 +465,30 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         xs = [x for x in xs if x == x]
         return sum(xs) / len(xs) if xs else None
 
+    def _hit_rate(hits: List[int]) -> Optional[float]:
+        return sum(hits) / len(hits) if hits else None
+
     summary: Dict[str, Any] = {"n": n, "mode": mode, "models": {}, "markets": {}}
     for name, m in metrics.items():
+        hits = m.get("hits", [])
         summary["models"][name] = {
             "brier": _avg(m["brier"]),
             "logloss": _avg(m["logloss"]),
             "n": len(m["brier"]),
+            "hits": sum(hits) if hits else 0,
+            "n_graded": len(hits),
+            "hit_rate": _hit_rate(hits),
         }
     for mkey, buckets in market_metrics.items():
         entry: Dict[str, Any] = {}
         for src, scores in buckets.items():
-            if scores:
+            if src == "rule_hits":
+                if scores:
+                    entry.setdefault("rule", {})["hits"] = sum(scores)
+                    entry["rule"]["n_graded"] = len(scores)
+                    entry["rule"]["hit_rate"] = _hit_rate(scores)
+                continue
+            if scores and src in ("rule", "book", "dg_sim"):
                 entry[src] = {"brier": _avg(scores), "n": len(scores)}
         if entry:
             summary["markets"][mkey] = entry

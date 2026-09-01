@@ -76,11 +76,13 @@ Besides the match winner lean, each fixture shows **core market lines** (still r
 | **Home 1.5 / Away 1.5** | That team Over or Under 1.5 goals |
 | **FH 1X2** | First-half result lean |
 | **FH 0.5** | First-half Over or Under 0.5 goals |
-| **Corners** | Over or Under 9.5 corners |
-| **Shots / SOT** | Over or Under 25.5 shots / 8.5 shots on target |
+| **Corners** | Over or Under — chip shows the **selected line** (e.g. Corners 10.5) |
+| **Shots / SOT** | Over or Under — chip shows the **selected line** (e.g. Shots 26.5, SOT 9.5) |
 | **Cards** | Over or Under 3.5 total cards |
 
-Open **Market details** for drivers and how our lean compares to DataGaffer’s simulation or the book (when available). Corners, shots, and cards often have no book line in the feed — treat those as exploratory.
+For corners, shots, and shots-on-target there is no book line in the feed, so the engine picks the ladder line where the DG simulation is most decisive **within a probability band** (roughly 15–85%). That favours readable leans, not betting value. The stored `line` is what we grade against once results arrive.
+
+Open **Market details** for drivers and how our lean compares to DataGaffer’s simulation or the book (when available). When only the DG model is available you may see **DG model only** instead of **Model + book agree** — that means no book line existed for that market, not that two independent sources confirmed the lean.
 
 ## What DG Rating means
 
@@ -112,13 +114,15 @@ We also use **home vs away** splits of these numbers so a team’s home profile 
 
 ## Strongest leans (today only)
 
-The **Strongest leans** page posts **at most one** outcome per fixture for the **current UTC day**. It scores every published market plus the match-winner lean, then keeps a pick only if it clears a conservative bar:
+The **Strongest leans** page posts **at most one** outcome per fixture for the **current Nigerian (WAT) day**. It scores every published market plus the match-winner lean, then keeps a pick only if it clears a conservative bar:
 
 - **High** confidence
 - Model probability **≥ 65%** (missing probability fails — unlike the dashboard filters)
 - When DG and/or book signals exist for that market, the lean must **agree with every present signal** (both when both exist)
 
-Fixtures that fail the bar are **omitted**. Goal-model markets are preferred over style-only lines (corners / shots / cards) when both qualify. This still **does not eliminate risk** and is **not betting advice** — it is a stricter shortlist of the same rule-based leans.
+Fixtures that fail the bar are **omitted**. Goal-model markets are preferred over style-only lines (corners / shots / cards) when both qualify. When two leans tie, a pick with **both** DG and book agreement ranks above **DG model only**. A banner at the top summarises recent hit-rate where football-data.co.uk stats allow grading — many leagues only have full-time scores, so treat that figure as indicative, not exhaustive.
+
+This still **does not eliminate risk** and is **not betting advice** — it is a stricter shortlist of the same rule-based leans.
 
 ## AI Picks
 
@@ -130,7 +134,7 @@ Fixtures that fail the bar are **omitted**. Goal-model markets are preferred ove
 
 ## How to use this properly
 
-1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the full board (any date / league).
+1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the full board (defaults to **today in WAT**; choose **All dates** for the full archive).
 2. Optionally open **Market leans** in the sidebar to combine directions — for example BTTS Yes **and** SOT Over **and** Goals 2.5 Over. Use **Match all** (default) so every pick must hold, or **Match any** if one is enough.
 3. Raise **Min probability** / **Min confidence** to keep only stronger market leans. With no market picks selected, those floors apply to the main match-winner lean instead.
 4. Skim **high-confidence** leans first; treat low-confidence as noise.
@@ -142,4 +146,6 @@ The filter URL is shareable — copy the address bar after Apply to send someone
 
 ## What “stale” means
 
-If the site shows a yellow “stale” banner, the last successful refresh was more than about **36 hours** ago. Numbers may still display, but treat them cautiously until the next matches job runs.
+If the site shows a yellow “stale” banner, the last successful refresh was more than about **36 hours** ago. Numbers may still display, but treat them cautiously until the next matches job runs. Open **Status** (`/status`) for the last pipeline run, snapshot age, score-source counts, and today’s AI pick count.
+
+Hit-rate and lean grading depend on which leagues **football-data.co.uk** publishes stat columns for (corners, shots, cards, etc.). Leagues with only full-time scores can still grade 1X2 and goals markets but not every prop line.

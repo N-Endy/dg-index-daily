@@ -16,6 +16,7 @@
   Data looks <strong>stale</strong>
   {% if staleness_hours %}(about {{ '%.0f'|format(staleness_hours) }} hours old){% endif %}.
   A scheduled refresh should catch up soon — treat numbers cautiously until then.
+  <a href="/status">View status</a>
 </div>
 {% endif %}
 
@@ -56,7 +57,7 @@
       <label>
         Date
         <select name="date">
-          <option value="">All dates</option>
+          <option value="all" {% if not date_filter %}selected{% endif %}>All dates</option>
           {% for d in dates %}
           <option value="{{ d }}" {% if date_filter == d %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
@@ -126,7 +127,7 @@
 
       <div class="filter-actions">
         <button type="submit">Apply</button>
-        {% if date_filter or league_filter or n_market_filters or min_prob or min_conf %}
+        {% if has_active_filters %}
         <a class="link-clear" href="/">Clear</a>
         {% endif %}
       </div>
@@ -166,11 +167,9 @@
             </div>
 
             <div class="strip-main">
-              <h3 class="matchup">
-                <span class="team home">{{ p.home_name }}</span>
-                <span class="vs">vs</span>
-                <span class="team away">{{ p.away_name }}</span>
-              </h3>
+              {% with home_name=p.home_name, away_name=p.away_name, home_logo=p.home_logo, away_logo=p.away_logo, is_neutral=p.is_neutral %}
+              {% include "_team_matchup.html" %}
+              {% endwith %}
               <div class="lean-block lean-settle">
                 <p class="lean">{{ p.lean_label }}{% if p.lean_prob_plain %} <span class="lean-prob">{{ p.lean_prob_plain }}</span>{% endif %}
                   {% if p.lean_result_key == 'hit' or p.lean_result_key == 'miss' %}

@@ -132,6 +132,18 @@ RATING_STRENGTH_KEYS = (
 ANOMALY_Z_THRESHOLD = 2.0
 ALIAS_FUZZY_THRESHOLD = 80
 SUPERVISED_MIN_LABELS = 300
+SUPERVISED_ENABLED = os.environ.get("SUPERVISED_ENABLED", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+MARKET_DYNAMIC_LINES = os.environ.get("MARKET_DYNAMIC_LINES", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+MARKET_LINE_MIN_PCT = float(os.environ.get("MARKET_LINE_MIN_PCT", "15.0"))
+MARKET_LINE_MAX_PCT = float(os.environ.get("MARKET_LINE_MAX_PCT", "85.0"))
 DEFAULT_FD_SEASON = "2627"
 
 # API-Football (api-sports.io) — timely FT scores by fixture_id

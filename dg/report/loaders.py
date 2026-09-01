@@ -218,7 +218,7 @@ def load_dashboard_context(
         rows = conn.execute(
             """
             SELECT p.*, f.date_utc, f.league, f.home_name, f.away_name,
-                   f.home_id, f.away_id
+                   f.home_id, f.away_id, f.home_logo, f.away_logo, f.is_neutral
             FROM prediction p
             JOIN fixture f ON f.fixture_id = p.fixture_id
             WHERE p.id IN (
@@ -361,8 +361,11 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
     hint = agreement_hint(pred.get("lean"), pred.get("dg_sim_lean"), pred.get("book_lean"))
     out["agreement_key"] = hint["key"]
     out["agreement_label"] = hint["label"]
+    out["agreement_sources"] = hint.get("sources", [])
+    out["agreement_n_sources"] = hint.get("n_sources", 0)
     out["why"] = [driver_plain(d) for d in (pred.get("drivers") or [])]
     out["kickoff_display"] = _format_kickoff(pred.get("date_utc"))
+    out["is_neutral"] = bool(pred.get("is_neutral"))
 
     # Probabilities (1X2 + strength)
     probs = pred.get("probs")
@@ -412,8 +415,9 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
     market_labels: Dict[str, Any] = {}
     if pred.get("completed") and pred.get("result_row"):
         from dg.model.evaluate import _market_labels
+        from dg.model.markets import extract_market_lines
 
-        market_labels = _market_labels(pred["result_row"])
+        market_labels = _market_labels(pred["result_row"], extract_market_lines(markets))
 
     for key in MARKET_ORDER:
         m = markets.get(key)
@@ -424,7 +428,7 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
             {
                 **m,
                 "lean_plain": market_lean_plain(m.get("lean"), key),
-                "chip_label": market_chip_label(key, m.get("label")),
+                "chip_label": market_chip_label(key, m.get("label"), line=m.get("line")),
                 "confidence_key": (m.get("confidence") or "low").lower(),
                 "prob_plain": probability_plain(m.get("prob")),
                 "result_key": r_key,

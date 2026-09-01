@@ -11,6 +11,24 @@ from dg.model.registry import weights_hash
 
 MARKETS_WEIGHTS_PATH = config.CONFIG_DIR / "weights_markets_v1.yaml"
 
+DEFAULT_MARKET_LINES = {
+    "goals_2_5": 2.5,
+    "goals_3_5": 3.5,
+    "team_goals_home_1_5": 1.5,
+    "team_goals_away_1_5": 1.5,
+    "fh_over_0_5": 0.5,
+    "corners_9_5": 9.5,
+    "shots_25_5": 25.5,
+    "sot_8_5": 8.5,
+    "cards_3_5": 3.5,
+}
+
+MARKET_LINE_LADDERS = {
+    "corners_9_5": ("corners_over_{}_pct", (7.5, 8.5, 9.5, 10.5, 11.5), 9.5),
+    "shots_25_5": ("shots_over_{}_pct", (24.5, 25.5, 26.5, 27.5, 28.5), 25.5),
+    "sot_8_5": ("sot_over_{}_pct", (7.5, 8.5, 9.5, 10.5, 11.5), 8.5),
+}
+
 
 def load_markets_config(path: Optional[Path] = None) -> Dict[str, Any]:
     path = path or MARKETS_WEIGHTS_PATH
@@ -26,6 +44,81 @@ def markets_model_tag(path: Optional[Path] = None) -> str:
     data = load_markets_config(path)
     base = data.get("version", "markets_v1")
     return f"{base}_{weights_hash(path)}"
+
+
+def _line_suffix(line: float) -> str:
+    if line == int(line):
+        return str(int(line))
+    return str(line).replace(".", "_")
+
+
+def _pct_key_for_line(pattern: str, line: float) -> str:
+    return pattern.format(_line_suffix(line))
+
+
+def select_line(perc: Dict[str, Any], market_key: str) -> Tuple[float, Optional[float]]:
+    """Pick the most decisive sim line within the configured probability band."""
+    default = DEFAULT_MARKET_LINES.get(market_key, 9.5)
+    ladder_spec = MARKET_LINE_LADDERS.get(market_key)
+    if not ladder_spec:
+        return default, None
+    pattern, ladder, fallback = ladder_spec
+    if not config.MARKET_DYNAMIC_LINES:
+        key = _pct_key_for_line(pattern, fallback)
+        raw = perc.get(key)
+        try:
+            return fallback, float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return fallback, None
+
+    lo = config.MARKET_LINE_MIN_PCT
+    hi = config.MARKET_LINE_MAX_PCT
+    best_line = fallback
+    best_pct: Optional[float] = None
+    best_score = -1.0
+    for line in ladder:
+        key = _pct_key_for_line(pattern, line)
+        raw = perc.get(key)
+        if raw is None:
+            continue
+        try:
+            p = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if p < lo or p > hi:
+            continue
+        score = abs(p - 50.0)
+        if score > best_score:
+            best_score = score
+            best_line = line
+            best_pct = p
+    if best_pct is None:
+        key = _pct_key_for_line(pattern, fallback)
+        raw = perc.get(key)
+        try:
+            best_pct = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            best_pct = None
+        best_line = fallback
+    return best_line, best_pct
+
+
+def market_line_from_dict(market: Optional[Dict[str, Any]], key: str) -> float:
+    if isinstance(market, dict) and market.get("line") is not None:
+        try:
+            return float(market["line"])
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_MARKET_LINES.get(key, 9.5)
+
+
+def extract_market_lines(markets: Dict[str, Any]) -> Dict[str, float]:
+    lines: Dict[str, float] = {}
+    for key in MARKET_ORDER:
+        m = markets.get(key)
+        if isinstance(m, dict):
+            lines[key] = market_line_from_dict(m, key)
+    return lines
 
 
 def _num(v: Any, default: float = 0.0) -> float:
@@ -125,6 +218,7 @@ def _pack(
     dg_lean: Optional[str] = None,
     book_lean: Optional[str] = None,
     prob: Optional[float] = None,
+    line: Optional[float] = None,
 ) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "key": key,
@@ -136,6 +230,8 @@ def _pack(
         "dg_lean": dg_lean,
         "book_lean": book_lean,
     }
+    if line is not None:
+        out["line"] = line
     if prob is not None:
         out["prob"] = round(float(prob), 4)
     return out
@@ -219,6 +315,7 @@ def predict_markets(
         dg_lean=_ou_from_pct(perc.get("over_2_5_pct")),
         book_lean=_ou_from_odds(book.get("over_2_5"), book.get("under_2_5")),
         prob=g_prob if g_prob is not None else (0.5 + abs(g_score) * 0.25),
+        line=2.5,
     )
     # Attach probability of the lean side
     if p_over is not None:
@@ -252,6 +349,7 @@ def predict_markets(
         dg_lean=_ou_from_pct(perc.get("over_3_5_pct")),
         book_lean=_ou_from_odds(book.get("over_3_5"), book.get("under_3_5")),
         prob=None,
+        line=3.5,
     )
     if p_over35 is not None:
         out["goals_3_5"]["prob"] = round(
@@ -311,6 +409,7 @@ def predict_markets(
         dg_lean=_ou_from_pct(perc.get("home_o1_5_pct")),
         book_lean=None,
         prob=(float(p_ho) if th_lean == "Over" else 1.0 - float(p_ho)) if p_ho is not None else None,
+        line=1.5,
     )
     if book.get("home_o1_5"):
         try:
@@ -343,6 +442,7 @@ def predict_markets(
         dg_lean=_ou_from_pct(perc.get("away_o1_5_pct")),
         book_lean=None,
         prob=(float(p_ao) if ta_lean == "Over" else 1.0 - float(p_ao)) if p_ao is not None else None,
+        line=1.5,
     )
     if book.get("away_o1_5"):
         try:
@@ -436,97 +536,106 @@ def predict_markets(
         dg_lean="Over" if fh_xg_t >= 0.5 else ("Under" if fh_xg_t > 0 else None),
         book_lean=fh_over_book,
         prob=(float(p_fho) if fho_lean == "Over" else 1.0 - float(p_fho)) if p_fho is not None else None,
+        line=0.5,
     )
 
-    # --- Corners O/U 9.5 ---
+    # --- Corners O/U (dynamic line) ---
+    corners_line, corners_pct = select_line(perc, "corners_9_5")
     c_w = cfg.get("corners_9_5") or {}
     c_score, _, c_drv = _weighted(
         {
             "pace_clash": (pace - 100.0) / 100.0,
             "nec_sum": (nec_sum - 100.0) / 100.0,
-            "corners_proj_bias": (corners_t - 9.5) / 5.0 if corners_t else (pace - 100.0) / 100.0,
-            "sim_corners_over_bias": (_num(perc.get("corners_over_9_5_pct"), 50.0) - 50.0) / 50.0,
+            "corners_proj_bias": (corners_t - corners_line) / 5.0 if corners_t else (pace - 100.0) / 100.0,
+            "sim_corners_over_bias": (_num(corners_pct, 50.0) - 50.0) / 50.0,
         },
         c_w,
     )
     out["corners_9_5"] = _pack(
         key="corners_9_5",
-        label="Corners O/U 9.5",
+        label=f"Corners O/U {corners_line}",
         lean=_binary_lean(c_score, "Over", "Under"),
         confidence=_conf(c_score, matchup, cfg),
         score=c_score,
         drivers=c_drv,
-        dg_lean=_ou_from_pct(perc.get("corners_over_9_5_pct")),
+        dg_lean=_ou_from_pct(corners_pct),
         book_lean=None,
         prob=min(0.85, max(0.15, 0.5 + c_score * 0.3)),
+        line=corners_line,
     )
 
-    # --- Shots O/U 25.5 ---
+    # --- Shots O/U (dynamic line) ---
+    shots_line, shots_pct = select_line(perc, "shots_25_5")
     s_w = cfg.get("shots_25_5") or {}
     s_score, _, s_drv = _weighted(
         {
             "pace_clash": (pace - 100.0) / 100.0,
-            "shots_proj_bias": (shots_t - 25.5) / 10.0 if shots_t else (pace - 100.0) / 100.0,
-            "sim_shots_over_bias": (_num(perc.get("shots_over_25_5_pct"), 50.0) - 50.0) / 50.0,
+            "shots_proj_bias": (shots_t - shots_line) / 10.0 if shots_t else (pace - 100.0) / 100.0,
+            "sim_shots_over_bias": (_num(shots_pct, 50.0) - 50.0) / 50.0,
         },
         s_w,
     )
     out["shots_25_5"] = _pack(
         key="shots_25_5",
-        label="Shots O/U 25.5",
+        label=f"Shots O/U {shots_line}",
         lean=_binary_lean(s_score, "Over", "Under"),
         confidence=_conf(s_score, matchup, cfg),
         score=s_score,
         drivers=s_drv,
-        dg_lean=_ou_from_pct(perc.get("shots_over_25_5_pct")),
+        dg_lean=_ou_from_pct(shots_pct),
         book_lean=None,
         prob=min(0.85, max(0.15, 0.5 + s_score * 0.3)),
+        line=shots_line,
     )
 
-    # --- SOT O/U 8.5 ---
+    # --- SOT O/U (dynamic line) ---
+    sot_line, sot_pct = select_line(perc, "sot_8_5")
     so_w = cfg.get("sot_8_5") or {}
     so_score, _, so_drv = _weighted(
         {
             "pace_clash": (pace - 100.0) / 100.0,
             "nec_sum": (nec_sum - 100.0) / 100.0,
-            "sot_proj_bias": (sot_t - 8.5) / 4.0 if sot_t else (pace - 100.0) / 100.0,
-            "sim_sot_over_bias": (_num(perc.get("sot_over_8_5_pct"), 50.0) - 50.0) / 50.0,
+            "sot_proj_bias": (sot_t - sot_line) / 4.0 if sot_t else (pace - 100.0) / 100.0,
+            "sim_sot_over_bias": (_num(sot_pct, 50.0) - 50.0) / 50.0,
         },
         so_w,
     )
     out["sot_8_5"] = _pack(
         key="sot_8_5",
-        label="SOT O/U 8.5",
+        label=f"SOT O/U {sot_line}",
         lean=_binary_lean(so_score, "Over", "Under"),
         confidence=_conf(so_score, matchup, cfg),
         score=so_score,
         drivers=so_drv,
-        dg_lean=_ou_from_pct(perc.get("sot_over_8_5_pct")),
+        dg_lean=_ou_from_pct(sot_pct),
         book_lean=None,
         prob=min(0.85, max(0.15, 0.5 + so_score * 0.3)),
+        line=sot_line,
     )
 
     # --- Cards O/U 3.5 ---
+    cards_line = 3.5
     cd_w = cfg.get("cards_3_5") or {}
     cd_score, _, cd_drv = _weighted(
         {
             "agix_sum": (agix_sum - 100.0) / 100.0,
             "pressing_intensity": pressing_intensity / 2.0,
-            "cards_proj_bias": (cards_t - 3.5) / 2.0 if cards_t else (agix_sum - 100.0) / 100.0,
+            "cards_proj_bias": (cards_t - cards_line) / 2.0 if cards_t else (agix_sum - 100.0) / 100.0,
             "aggression_volatility": abs(agg_asym) / 50.0,
         },
         cd_w,
     )
     out["cards_3_5"] = _pack(
         key="cards_3_5",
-        label="Cards O/U 3.5",
+        label=f"Cards O/U {cards_line}",
         lean=_binary_lean(cd_score, "Over", "Under"),
         confidence=_conf(cd_score, matchup, cfg),
         score=cd_score,
         drivers=cd_drv,
-        dg_lean=("Over" if cards_t >= 3.5 else "Under") if cards_t else None,
+        dg_lean=("Over" if cards_t >= cards_line else "Under") if cards_t else None,
         book_lean=None,
         prob=min(0.85, max(0.15, 0.5 + cd_score * 0.3)),
+        line=cards_line,
     )
 
     return out

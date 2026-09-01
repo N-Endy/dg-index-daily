@@ -25,6 +25,7 @@ def web_client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(config, "ALIASES_DIR", tmp_path / "aliases")
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr("dg.report.loaders.today_wat", lambda: "2026-08-29")
     config.ensure_dirs()
 
     meta = json.loads((FIXTURES / "dg_meta_sample.json").read_text())
@@ -70,17 +71,19 @@ def web_client(tmp_path, monkeypatch):
     conn.close()
 
     # Import app after paths are patched
-    from dg.web.app import app
+    from dg.web import app as webapp
 
-    return TestClient(app)
+    monkeypatch.setattr(webapp, "today_wat", lambda: "2026-08-29")
+    return TestClient(webapp.app)
 
 
 def test_agreement_hint():
     from dg.web.plain_language import agreement_hint
 
-    assert agreement_hint("Home", "Home", "Home")["label"] == "Aligned"
+    assert agreement_hint("Home", "Home", "Home")["label"] == "Model + book agree"
     assert agreement_hint("Home", "Away", "Away")["label"] == "Split"
     assert agreement_hint("Home", "Home", "Away")["label"] == "Partial"
+    assert agreement_hint("Over", "Over", None)["n_sources"] == 1
 
 
 def test_healthz(web_client):
@@ -207,7 +210,7 @@ def test_score_link_confirm_with_header(web_client, monkeypatch):
 
     monkeypatch.setattr(config, "SCORE_LINK_SECRET", "test-secret")
     conn = init_db(connect(config.DB_PATH))
-    fx = conn.execute("SELECT fixture_id, home_name, away_name FROM fixture LIMIT 1").fetchone()
+    fx = conn.execute("SELECT fixture_id, home_name, away_name, league FROM fixture LIMIT 1").fetchone()
     assert fx is not None
     persist_flashscore_rows(
         conn,
@@ -217,7 +220,7 @@ def test_score_link_confirm_with_header(web_client, monkeypatch):
                 "away": fx["away_name"],
                 "fthg": 1,
                 "ftag": 0,
-                "league": "Test",
+                "league": fx["league"],
             }
         ],
     )
@@ -358,6 +361,21 @@ def test_dashboard_shows_market_filter_controls(web_client):
     assert "Match all" in r.text
     assert "Min probability" in r.text
     assert "Min confidence" in r.text
+
+
+def test_status_page_renders(web_client):
+    r = web_client.get("/status")
+    assert r.status_code == 200
+    assert "Pipeline status" in r.text
+    assert "Latest snapshot" in r.text
+    assert 'href="/status"' in r.text
+
+
+def test_dashboard_all_dates_option(web_client):
+    r = web_client.get("/?date=all")
+    assert r.status_code == 200
+    assert 'value="all"' in r.text
+    assert "fixture-strip" in r.text or "No fixtures match" in r.text
 
 
 def test_dashboard_empty_form_fields_not_422(web_client):

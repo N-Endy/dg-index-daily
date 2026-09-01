@@ -1,0 +1,18 @@
+<h3 class="matchup">
+  <span class="team home">
+    {% if home_logo %}
+    <img class="team-logo" src="{{ home_logo }}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('logo-failed')" />
+    {% endif %}
+    <span class="team-name">{{ home_name }}</span>
+  </span>
+  <span class="vs">vs</span>
+  <span class="team away">
+    {% if away_logo %}
+    <img class="team-logo" src="{{ away_logo }}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('logo-failed')" />
+    {% endif %}
+    <span class="team-name">{{ away_name }}</span>
+  </span>
+</h3>
+{% if is_neutral %}
+<p class="venue-tag">Neutral venue</p>
+{% endif %}

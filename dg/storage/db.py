@@ -60,6 +60,28 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
         if col not in rating_cols:
             c.execute(f"ALTER TABLE dg_team_rating ADD COLUMN {col} REAL")
 
+    fixture_cols = {row[1] for row in c.execute("PRAGMA table_info(fixture)").fetchall()}
+    for col in ("home_logo", "away_logo"):
+        if col not in fixture_cols:
+            c.execute(f"ALTER TABLE fixture ADD COLUMN {col} TEXT")
+    if "is_neutral" not in fixture_cols:
+        c.execute("ALTER TABLE fixture ADD COLUMN is_neutral INTEGER")
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS model_calibration (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fitted_at TEXT NOT NULL,
+            model_version TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            slope REAL NOT NULL,
+            intercept REAL NOT NULL,
+            n_labels INTEGER NOT NULL,
+            UNIQUE (model_version, outcome)
+        )
+        """
+    )
+
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     own = conn is None

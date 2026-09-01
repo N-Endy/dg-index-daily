@@ -10,3 +10,5 @@ max_goals: 8
 fh_goal_share: 0.42            # share of full-time lambda assigned to first half
 min_lambda: 0.15
 max_lambda: 4.5
+dixon_coles_enabled: false
+dixon_coles_rho: -0.05

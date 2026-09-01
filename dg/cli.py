@@ -16,7 +16,7 @@ from dg.ingest.ratings import ingest_ratings, team_ids_for_snapshot
 from dg.ingest.results import backfill_results
 from dg.model.evaluate import evaluate_joined
 from dg.model.rules import predict_upcoming
-from dg.model.supervised import train_if_ready
+from dg.model.supervised import fit_calibration, train_if_ready
 from dg.quality.checks import QualityReport, run_quality_checks
 from dg.quality.doctor import run_doctor
 from dg.report.loaders import today_wat
@@ -25,6 +25,14 @@ from dg.sources import datagaffer as dg_src
 from dg.storage.db import db_session, init_db, latest_snapshot, snapshot_exists
 
 logger = logging.getLogger(__name__)
+
+
+def _archive_teams_optional() -> None:
+    """Archive teams.json for completeness; never fail the pipeline."""
+    try:
+        dg_src.fetch_teams(archive=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("teams.json archive skipped: %s", exc)
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -81,6 +89,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         try:
             meta, meta_bytes, _ = dg_src.fetch_meta()
             dg_src.archive_bytes("dg_meta.json", meta_bytes)
+            _archive_teams_optional()
             stages["meta"] = meta.generated_at
 
             if snapshot_exists(conn, meta.generated_at) and not args.force:
@@ -172,6 +181,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             else:
                 meta, meta_bytes, _ = dg_src.fetch_meta()
                 dg_src.archive_bytes("dg_meta.json", meta_bytes)
+                _archive_teams_optional()
                 generated_at = meta.generated_at
                 stages["meta"] = generated_at
 
@@ -368,6 +378,20 @@ def cmd_report(args: argparse.Namespace) -> int:
         return config.EXIT_OK
 
 
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    with db_session() as conn:
+        from dg.model.registry import model_version
+
+        mv = model_version()
+        summary = fit_calibration(conn, model_version=mv)
+        print(json.dumps(summary, indent=2))
+        if summary.get("fitted"):
+            return config.EXIT_OK
+        return config.EXIT_PARTIAL
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="dg", description="DataGaffer daily DG Index pipeline")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -404,6 +428,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     rp = sub.add_parser("report", help="Regenerate report from DB")
     rp.set_defaults(func=cmd_report)
+
+    cal = sub.add_parser("calibrate", help="Fit Platt calibration from labelled results")
+    cal.set_defaults(func=cmd_calibrate)
 
     doc = sub.add_parser("doctor", help="Live feed contract checks")
     doc.set_defaults(func=cmd_doctor)

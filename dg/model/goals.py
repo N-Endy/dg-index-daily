@@ -115,16 +115,39 @@ def _poisson_pmf_row(lam: float, max_goals: int) -> Tuple[float, ...]:
     return tuple(probs)
 
 
+def _tau(i: int, j: int, lam_h: float, lam_a: float, rho: float) -> float:
+    if rho == 0.0:
+        return 1.0
+    if i == 0 and j == 0:
+        return 1.0 - lam_h * lam_a * rho
+    if i == 0 and j == 1:
+        return 1.0 + lam_h * rho
+    if i == 1 and j == 0:
+        return 1.0 + lam_a * rho
+    if i == 1 and j == 1:
+        return 1.0 - rho
+    return 1.0
+
+
 def score_matrix(
     lam_h: float,
     lam_a: float,
     *,
     max_goals: int = 8,
+    rho: float = 0.0,
 ) -> List[List[float]]:
-    """Independent Poisson joint score probabilities [home][away]."""
+    """Joint score probabilities [home][away], optional Dixon–Coles low-score correction."""
     ph = _poisson_pmf_row(round(lam_h, 4), max_goals)
     pa = _poisson_pmf_row(round(lam_a, 4), max_goals)
-    return [[ph[i] * pa[j] for j in range(max_goals + 1)] for i in range(max_goals + 1)]
+    mat = [
+        [ph[i] * pa[j] * _tau(i, j, lam_h, lam_a, rho) for j in range(max_goals + 1)]
+        for i in range(max_goals + 1)
+    ]
+    if rho != 0.0:
+        total = sum(mat[i][j] for i in range(max_goals + 1) for j in range(max_goals + 1))
+        if total > 0:
+            mat = [[mat[i][j] / total for j in range(max_goals + 1)] for i in range(max_goals + 1)]
+    return mat
 
 
 def derive_probabilities(
@@ -137,8 +160,9 @@ def derive_probabilities(
     cfg = cfg or load_goals_config()
     max_g = int(cfg.get("max_goals", 8))
     fh_share = float(cfg.get("fh_goal_share", 0.42))
+    rho = float(cfg.get("dixon_coles_rho", -0.05)) if cfg.get("dixon_coles_enabled") else 0.0
 
-    mat = score_matrix(lam_h, lam_a, max_goals=max_g)
+    mat = score_matrix(lam_h, lam_a, max_goals=max_g, rho=rho)
     p_home = p_draw = p_away = 0.0
     p_over_25 = p_over_35 = p_btts = 0.0
     p_home_o15 = p_away_o15 = 0.0
@@ -165,7 +189,7 @@ def derive_probabilities(
                 p_away_o15 += p
 
     fh_h, fh_a = lam_h * fh_share, lam_a * fh_share
-    fh_mat = score_matrix(fh_h, fh_a, max_goals=max_g)
+    fh_mat = score_matrix(fh_h, fh_a, max_goals=max_g, rho=rho)
     fh_home = fh_draw = fh_away = fh_over_05 = 0.0
     for i in range(max_g + 1):
         for j in range(max_g + 1):
