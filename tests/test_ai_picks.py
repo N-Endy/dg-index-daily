@@ -214,10 +214,28 @@ def test_gate_one_per_fixture_keeps_higher_score():
     assert approved[0]["ai_score"] == 91
 
 
+def _seed_fixture(conn, fixture_id: int, *, league_id: int = 39) -> None:
+    now = "2026-08-30T12:00:00+00:00"
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO fixture (
+            fixture_id, date_utc, league, league_id, league_country,
+            home_id, away_id, home_name, away_name,
+            first_seen_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, 1, 2, 'Home FC', 'Away FC', ?, ?)
+        """,
+        (fixture_id, now, "Premier League", league_id, "England", now, now),
+    )
+
+
 def test_replace_and_load_ai_picks(tmp_path):
     from dg.ai.vet_strongest import load_ai_picks
 
     conn = init_db(connect(tmp_path / "ai.db"))
+    _seed_fixture(conn, 42, league_id=40)
+    conn.execute(
+        "UPDATE fixture SET league = 'Championship', league_country = 'England' WHERE fixture_id = 42"
+    )
     approved = [
         {
             "fixture_id": 42,
@@ -304,6 +322,7 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
         )
 
     conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 7)
     # Patch load_strongest_day where vet imports it
     import dg.ai.vet_strongest as vs
 

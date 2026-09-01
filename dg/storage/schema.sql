@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS fixture (
     date_utc TEXT NOT NULL,
     league TEXT,
     league_id INTEGER,
+    league_country TEXT,
     home_id INTEGER NOT NULL,
     away_id INTEGER NOT NULL,
     home_name TEXT,

@@ -96,7 +96,7 @@ def render_report(
                 elif lean == "Draw" and probs.get("draw") is not None:
                     pct = f" ({int(round(float(probs['draw']) * 100))}%)"
                 lines.append(
-                    f"| {p.get('league') or ''} | {p.get('home_name')} | {p.get('away_name')} "
+                    f"| {p.get('league_display') or p.get('league') or ''} | {p.get('home_name')} | {p.get('away_name')} "
                     f"| **{lean}**{pct} | {p.get('confidence')} | {p.get('match_character')} "
                     f"| {p.get('dg_sim_lean') or '—'} | {p.get('book_lean') or '—'} | {drivers} |"
                 )

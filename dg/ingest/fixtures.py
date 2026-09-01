@@ -68,6 +68,17 @@ def ingest_fixtures(
         is_neutral = 1 if fx.get("is_neutral") else 0
         league = _nested(fx, "league", "name") or ""
         league_id = _nested(fx, "league", "id") or fx.get("league_id")
+        feed_country = _nested(fx, "league", "country") or fx.get("league_country")
+        from dg.leagues import resolve_league_country
+
+        league_country = resolve_league_country(
+            league_id=league_id,
+            feed_country=feed_country,
+        )
+        if league_id is not None and not league_country:
+            warnings.append(
+                f"unknown league_id={league_id} ({league or 'unnamed'}) — add to league_countries.json"
+            )
         date_utc = fx.get("date") or ""
 
         if known_team_ids is not None:
@@ -84,7 +95,8 @@ def ingest_fixtures(
             conn.execute(
                 """
                 UPDATE fixture SET
-                    date_utc=?, league=?, league_id=?, home_id=?, away_id=?,
+                    date_utc=?, league=?, league_id=?, league_country=?,
+                    home_id=?, away_id=?,
                     home_name=?, away_name=?, round=?,
                     home_logo=?, away_logo=?, is_neutral=?,
                     last_seen_at=?, raw_json=?
@@ -94,6 +106,7 @@ def ingest_fixtures(
                     date_utc,
                     league,
                     league_id,
+                    league_country,
                     home_id,
                     away_id,
                     home_name,
@@ -111,17 +124,19 @@ def ingest_fixtures(
             conn.execute(
                 """
                 INSERT INTO fixture (
-                    fixture_id, date_utc, league, league_id, home_id, away_id,
+                    fixture_id, date_utc, league, league_id, league_country,
+                    home_id, away_id,
                     home_name, away_name, round,
                     home_logo, away_logo, is_neutral,
                     first_seen_at, last_seen_at, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     fixture_id,
                     date_utc,
                     league,
                     league_id,
+                    league_country,
                     home_id,
                     away_id,
                     home_name,

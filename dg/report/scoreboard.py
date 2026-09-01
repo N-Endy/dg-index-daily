@@ -15,7 +15,8 @@ def recent_strongest_performance(conn, *, days: int = 30) -> Dict[str, Any]:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = conn.execute(
         """
-        SELECT p.*, f.date_utc, f.league, f.home_name, f.away_name,
+        SELECT p.*, f.date_utc, f.league, f.league_id, f.league_country,
+               f.home_name, f.away_name,
                f.home_id, f.away_id, f.home_logo, f.away_logo, f.is_neutral
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id

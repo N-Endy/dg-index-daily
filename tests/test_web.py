@@ -158,13 +158,16 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
 
     monkeypatch.setattr(config, "OPENAI_API_KEY", "present")
     conn = init_db(connect(config.DB_PATH))
+    fx = conn.execute("SELECT fixture_id FROM fixture LIMIT 1").fetchone()
+    assert fx is not None
+    fixture_id = int(fx["fixture_id"])
     day = today_wat()
     replace_ai_picks_for_day(
         conn,
         day,
         [
             {
-                "fixture_id": 1,
+                "fixture_id": fixture_id,
                 "market_key": "match_1x2",
                 "market_label": "Match winner",
                 "lean": "Home",
@@ -376,6 +379,36 @@ def test_dashboard_all_dates_option(web_client):
     assert r.status_code == 200
     assert 'value="all"' in r.text
     assert "fixture-strip" in r.text or "No fixtures match" in r.text
+
+
+def test_dashboard_league_country_label(web_client):
+    """Mapped league_id shows COUNTRY – LEAGUE on the board."""
+    r = web_client.get("/?date=2026-08-29")
+    assert r.status_code == 200
+    assert " – " in r.text
+    assert any(
+        token in r.text
+        for token in (
+            "GERMANY – 2. BUNDESLIGA",
+            "SWEDEN – ALLSVENSKAN",
+            "ENGLAND – PREMIER LEAGUE",
+            "ENGLAND – CHAMPIONSHIP",
+        )
+    )
+
+
+def test_dashboard_league_filter_uses_display_label(web_client):
+    r = web_client.get("/?date=2026-08-29")
+    assert r.status_code == 200
+    # Pick the first country-prefixed league from the filter dropdown
+    import re
+
+    m = re.search(r'value="([A-Z]+ – [^"]+)"', r.text)
+    assert m, "expected a country-prefixed league option"
+    label = m.group(1)
+    r2 = web_client.get(f"/?date=2026-08-29&league={label}")
+    assert r2.status_code == 200
+    assert label in r2.text
 
 
 def test_dashboard_empty_form_fields_not_422(web_client):

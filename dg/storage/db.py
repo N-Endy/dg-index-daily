@@ -66,6 +66,8 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
             c.execute(f"ALTER TABLE fixture ADD COLUMN {col} TEXT")
     if "is_neutral" not in fixture_cols:
         c.execute("ALTER TABLE fixture ADD COLUMN is_neutral INTEGER")
+    if "league_country" not in fixture_cols:
+        c.execute("ALTER TABLE fixture ADD COLUMN league_country TEXT")
 
     c.execute(
         """
@@ -91,9 +93,10 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     _ensure_additive_columns(c)
     # Backfill strength from raw_json on existing DBs (lazy import avoids cycles)
     try:
-        from dg.storage.migrations import backfill_strength_from_raw
+        from dg.storage.migrations import backfill_league_country, backfill_strength_from_raw
 
         backfill_strength_from_raw(c)
+        backfill_league_country(c)
     except Exception:
         pass
     c.commit()

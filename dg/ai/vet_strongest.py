@@ -37,6 +37,7 @@ def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
         "fixtureId": pick.get("fixture_id"),
         "marketKey": pick.get("market_key"),
         "league": pick.get("league"),
+        "league_display": pick.get("league_display"),
         "homeTeam": pick.get("home_name"),
         "awayTeam": pick.get("away_name"),
         "kickoff": pick.get("kickoff_display") or pick.get("date_utc"),
@@ -156,7 +157,7 @@ def gate_screen_scores(
     approved.sort(
         key=lambda p: (
             -int(p.get("ai_score") or 0),
-            (p.get("league") or "").lower(),
+            (p.get("league_display") or p.get("league") or "").lower(),
             p.get("date_utc") or "",
         )
     )
@@ -205,13 +206,18 @@ def replace_ai_picks_for_day(
 def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT day, fixture_id, market_key, lean, score, reason, model, pick_json, created_at
-        FROM ai_pick
-        WHERE day = ?
-        ORDER BY score DESC, fixture_id
+        SELECT ap.day, ap.fixture_id, ap.market_key, ap.lean, ap.score, ap.reason,
+               ap.model, ap.pick_json, ap.created_at,
+               f.league, f.league_id, f.league_country
+        FROM ai_pick ap
+        JOIN fixture f ON f.fixture_id = ap.fixture_id
+        WHERE ap.day = ?
+        ORDER BY ap.score DESC, ap.fixture_id
         """,
         (day,),
     ).fetchall()
+    from dg.leagues import attach_league_display
+
     out: List[Dict[str, Any]] = []
     for r in rows:
         d = dict(r)
@@ -224,6 +230,10 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         payload.setdefault("fixture_id", d["fixture_id"])
         payload.setdefault("market_key", d["market_key"])
         payload.setdefault("lean", d.get("lean"))
+        payload.setdefault("league", d.get("league"))
+        payload.setdefault("league_id", d.get("league_id"))
+        payload.setdefault("league_country", d.get("league_country"))
+        attach_league_display(payload)
         payload["ai_score"] = d["score"]
         payload["ai_reason"] = d.get("reason") or payload.get("ai_reason") or ""
         payload["ai_model"] = d.get("model")

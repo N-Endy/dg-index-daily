@@ -49,7 +49,7 @@
     <div class="strip-edge" aria-hidden="true"></div>
     <div class="strip-body">
       <div class="strip-meta">
-        <span class="league">{{ p.league or "—" }}</span>
+        <span class="league">{{ p.league_display or p.league or "—" }}</span>
         <span class="kickoff">{{ p.kickoff_display }}</span>
         {% if p.completed and p.ft_score %}
         <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>

@@ -46,7 +46,7 @@
     <div class="strip-edge" aria-hidden="true"></div>
     <div class="strip-body">
       <div class="strip-meta">
-        <span class="league">{{ p.league or "—" }}</span>
+        <span class="league">{{ p.league_display or p.league or "—" }}</span>
         <span class="kickoff">{{ p.kickoff_display }}</span>
         {% if p.ai_score is not none %}
         <span class="ft-score" title="AI screen score">AI {{ p.ai_score }}</span>

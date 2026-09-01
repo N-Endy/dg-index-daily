@@ -217,7 +217,8 @@ def load_dashboard_context(
         # Latest prediction per fixture
         rows = conn.execute(
             """
-            SELECT p.*, f.date_utc, f.league, f.home_name, f.away_name,
+            SELECT p.*, f.date_utc, f.league, f.league_id, f.league_country,
+                   f.home_name, f.away_name,
                    f.home_id, f.away_id, f.home_logo, f.away_logo, f.is_neutral
             FROM prediction p
             JOIN fixture f ON f.fixture_id = p.fixture_id
@@ -230,21 +231,24 @@ def load_dashboard_context(
 
         result_index = load_result_index(conn)
 
+        from dg.leagues import attach_league_display
+
         predictions: List[Dict[str, Any]] = []
         dates: set = set()
         leagues: set = set()
         for r in rows:
             d = dict(r)
+            attach_league_display(d)
             day = kickoff_date_wat(d.get("date_utc"))
-            league = d.get("league") or ""
+            league_display = d.get("league_display") or ""
             if day:
                 dates.add(day)
-            if league:
-                leagues.add(league)
+            if league_display:
+                leagues.add(league_display)
             # Collect dates/leagues before filtering so dropdowns stay complete
             if date_filter and day != date_filter:
                 continue
-            if league_filter and league != league_filter:
+            if league_filter and league_display != league_filter:
                 continue
             try:
                 d["drivers"] = json.loads(d.get("drivers_json") or "[]")
@@ -366,6 +370,9 @@ def enrich_prediction_for_display(pred: Dict[str, Any]) -> Dict[str, Any]:
     out["why"] = [driver_plain(d) for d in (pred.get("drivers") or [])]
     out["kickoff_display"] = _format_kickoff(pred.get("date_utc"))
     out["is_neutral"] = bool(pred.get("is_neutral"))
+    from dg.leagues import attach_league_display
+
+    attach_league_display(out)
 
     # Probabilities (1X2 + strength)
     probs = pred.get("probs")

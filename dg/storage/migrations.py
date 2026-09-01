@@ -37,6 +37,8 @@ def _ensure_columns(conn) -> None:
             conn.execute(f"ALTER TABLE fixture ADD COLUMN {col} TEXT")
     if "is_neutral" not in fixture_cols:
         conn.execute("ALTER TABLE fixture ADD COLUMN is_neutral INTEGER")
+    if "league_country" not in fixture_cols:
+        conn.execute("ALTER TABLE fixture ADD COLUMN league_country TEXT")
 
     conn.execute(
         """
@@ -87,10 +89,33 @@ def backfill_strength_from_raw(conn) -> int:
     return updated
 
 
+def backfill_league_country(conn) -> int:
+    """Fill fixture.league_country from league_id map where still NULL."""
+    from dg.leagues import load_league_countries
+
+    countries = load_league_countries()
+    if not countries:
+        return 0
+    updated = 0
+    for league_id, country in countries.items():
+        cur = conn.execute(
+            """
+            UPDATE fixture SET league_country = ?
+            WHERE league_id = ? AND (league_country IS NULL OR league_country = '')
+            """,
+            (country, league_id),
+        )
+        updated += cur.rowcount
+    if updated:
+        logger.info("Backfilled league_country on %d fixture rows", updated)
+    return updated
+
+
 def migrate(db_path: Optional[Path] = None) -> None:
     """Apply schema.sql and additive column migrations + strength backfill."""
     conn = init_db(connect(db_path) if db_path is not None else None)
     _ensure_columns(conn)
     backfill_strength_from_raw(conn)
+    backfill_league_country(conn)
     conn.commit()
     conn.close()
