@@ -56,6 +56,13 @@ def load_status_context() -> Dict[str, Any]:
             "SELECT COUNT(*) AS n FROM ai_pick WHERE day = ?", (day,)
         ).fetchone()
 
+        from dg.report.selection_audit import selection_regret_audit
+        from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
+
+        selection_audit = selection_regret_audit(conn)
+        strongest_scoreboard = recent_strongest_performance(conn)
+        ai_scoreboard = recent_ai_performance(conn)
+
         n_fixtures = conn.execute("SELECT COUNT(*) AS n FROM fixture").fetchone()
         n_predictions = conn.execute("SELECT COUNT(*) AS n FROM prediction").fetchone()
 
@@ -71,6 +78,9 @@ def load_status_context() -> Dict[str, Any]:
             "flashscore_last_scrape": flash_last["t"] if flash_last else None,
             "ai_picks_today": int(ai_count["n"]) if ai_count else 0,
             "has_openai_key": bool(config.OPENAI_API_KEY),
+            "selection_audit": selection_audit,
+            "strongest_scoreboard": strongest_scoreboard,
+            "ai_scoreboard": ai_scoreboard,
             "n_fixtures": int(n_fixtures["n"]) if n_fixtures else 0,
             "n_predictions": int(n_predictions["n"]) if n_predictions else 0,
             "today_wat": day,

@@ -180,6 +180,30 @@ AI_VET_MIN_SCORE = int(os.environ.get("AI_VET_MIN_SCORE", "70"))
 AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "120"))
 AI_VET_MAX_TOKENS = int(os.environ.get("AI_VET_MAX_TOKENS", "16000"))
 AI_VET_BATCH_SIZE = int(os.environ.get("AI_VET_BATCH_SIZE", "20"))
+AI_VET_TOP_N = int(os.environ.get("AI_VET_TOP_N", "3"))
+
+# Strongest lean selection
+STRONGEST_POISSON_PROB_EPSILON = float(os.environ.get("STRONGEST_POISSON_PROB_EPSILON", "0.03"))
+STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
+    "STRONGEST_USE_MARKET_HIT_RATES", "0"
+).strip().lower() in ("1", "true", "yes")
+STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
+AI_VET_TOP_N = int(os.environ.get("AI_VET_TOP_N", "3"))
+
+# Strongest lean selection
+STRONGEST_POISSON_PROB_EPSILON = float(os.environ.get("STRONGEST_POISSON_PROB_EPSILON", "0.03"))
+STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
+    "STRONGEST_USE_MARKET_HIT_RATES", "0"
+).strip().lower() in ("1", "true", "yes")
+STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
+AI_VET_TOP_N = int(os.environ.get("AI_VET_TOP_N", "3"))
+
+# Strongest lean selection
+STRONGEST_POISSON_PROB_EPSILON = float(os.environ.get("STRONGEST_POISSON_PROB_EPSILON", "0.03"))
+STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
+    "STRONGEST_USE_MARKET_HIT_RATES", "0"
+).strip().lower() in ("1", "true", "yes")
+STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
 
 # SQLite (web + batch jobs share one file on Railway volume)
 SQLITE_BUSY_TIMEOUT_SEC = float(os.environ.get("SQLITE_BUSY_TIMEOUT_SEC", "30"))

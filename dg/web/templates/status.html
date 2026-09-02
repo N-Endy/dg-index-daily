@@ -6,6 +6,22 @@
   <p class="eyebrow">Operations</p>
   <h1>Pipeline status</h1>
   <p class="lede">Last refresh, score sources, and data counts — for debugging stale banners and cron health.</p>
+
+  <article class="status-card">
+    <h2>Selection audit</h2>
+    {% if selection_audit and selection_audit.n_selected_graded %}
+    <dl>
+      <div><dt>Window</dt><dd>{{ selection_audit.window_days }} days</dd></div>
+      <div><dt>Selected hit rate</dt><dd>{% if selection_audit.selected_hit_rate is not none %}{{ '%.1f'|format(selection_audit.selected_hit_rate * 100) }}%{% else %}—{% endif %} ({{ selection_audit.n_selected_hits }}/{{ selection_audit.n_selected_graded }})</dd></div>
+      <div><dt>Oracle hit rate</dt><dd>{% if selection_audit.oracle_hit_rate is not none %}{{ '%.1f'|format(selection_audit.oracle_hit_rate * 100) }}%{% else %}—{% endif %} ({{ selection_audit.n_oracle_hits }}/{{ selection_audit.n_oracle_graded }})</dd></div>
+      <div><dt>Regret rate</dt><dd>{% if selection_audit.regret_rate is not none %}{{ '%.1f'|format(selection_audit.regret_rate * 100) }}%{% else %}—{% endif %} ({{ selection_audit.n_regret }} fixtures)</dd></div>
+    </dl>
+    <p class="muted">{{ selection_audit.coverage_note }}</p>
+    {% else %}
+    <p class="muted">Not enough graded fixtures yet.</p>
+    {% endif %}
+  </article>
+
 </section>
 
 {% if stale %}

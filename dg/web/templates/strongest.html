@@ -35,6 +35,20 @@
 </div>
 {% endif %}
 
+{% if selection_audit and selection_audit.n_selected_graded %}
+<div class="banner banner-info scoreboard-banner" role="status">
+  Selection audit (last {{ selection_audit.window_days }} days):
+  selected hit rate
+  {% if selection_audit.selected_hit_rate is not none %}{{ '%.0f'|format(selection_audit.selected_hit_rate * 100) }}%{% else %}—{% endif %},
+  oracle (any qualifying market hit)
+  {% if selection_audit.oracle_hit_rate is not none %}{{ '%.0f'|format(selection_audit.oracle_hit_rate * 100) }}%{% else %}—{% endif %}.
+  {% if selection_audit.regret_rate is not none %}
+  Regret: {{ selection_audit.n_regret }} of {{ selection_audit.n_selected_graded }}
+  ({{ '%.0f'|format(selection_audit.regret_rate * 100) }}%) — a different qualifying market would have hit.
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="strongest-meta">
   <p>
     {{ n_picks }} of {{ n_fixtures }} fixture{% if n_fixtures != 1 %}s{% endif %} cleared the bar today.

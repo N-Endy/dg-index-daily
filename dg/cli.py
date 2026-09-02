@@ -392,6 +392,18 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         return config.EXIT_PARTIAL
 
 
+def cmd_selection_audit(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    days = int(args.days)
+    with db_session() as conn:
+        from dg.report.selection_audit import selection_regret_audit
+
+        summary = selection_regret_audit(conn, days=days)
+        print(json.dumps(summary, indent=2))
+        return config.EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="dg", description="DataGaffer daily DG Index pipeline")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -431,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     cal = sub.add_parser("calibrate", help="Fit Platt calibration from labelled results")
     cal.set_defaults(func=cmd_calibrate)
+
+    sa = sub.add_parser(
+        "selection-audit",
+        help="Counterfactual Strongest selection regret report",
+    )
+    sa.add_argument("--days", type=int, default=30, help="Lookback window in days")
+    sa.set_defaults(func=cmd_selection_audit)
 
     doc = sub.add_parser("doctor", help="Live feed contract checks")
     doc.set_defaults(func=cmd_doctor)

@@ -12,6 +12,28 @@ from dg.ai.vet_strongest import (
 from dg.storage.db import connect, init_db
 
 
+def _vet_prediction(fixture_id: int) -> dict:
+    return {
+        "fixture_id": fixture_id,
+        "home_name": f"H{fixture_id}",
+        "away_name": f"A{fixture_id}",
+        "lean": "Home",
+        "confidence": "high",
+        "score": 0.4,
+        "dg_sim_lean": "Home",
+        "book_lean": "Home",
+        "probs": {"home": 0.7, "draw": 0.2, "away": 0.1},
+        "markets": {},
+        "date_utc": "2026-08-30T15:00:00+00:00",
+        "kickoff_display": "Sun 30 Aug · 16:00 WAT",
+    }
+
+
+def _vet_ctx(n: int = 4) -> dict:
+    preds = [_vet_prediction(i) for i in range(1, n + 1)]
+    return {"day": "2026-08-30", "predictions": preds, "picks": [], "empty": False}
+
+
 def test_chat_json_sends_max_completion_tokens(monkeypatch):
     from dg import config
     from dg.ai import openai_client as oc
@@ -74,45 +96,27 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
     config.ensure_dirs()
 
-    picks = [
-        {
-            "fixture_id": i,
-            "market_key": "match_1x2",
-            "lean": "Home",
-            "league": "L",
-            "home_name": f"H{i}",
-            "away_name": f"A{i}",
-            "date_utc": "2026-08-30T15:00:00+00:00",
-        }
-        for i in range(1, 5)
-    ]
     monkeypatch.setattr(
         vs,
         "load_strongest_day",
-        lambda date=None: {"day": "2026-08-30", "picks": picks, "empty": False},
+        lambda date=None: _vet_ctx(4),
     )
     calls = {"n": 0}
 
     def fake_chat(system, user):
         calls["n"] += 1
-        # Approve first of each batch by parsing is hard; return both for simplicity
+        fids = [1, 2] if calls["n"] == 1 else [3, 4]
         return json.dumps(
             {
-                "scores": [
+                "picks": [
                     {
-                        "fixtureId": 1 if calls["n"] == 1 else 3,
+                        "fixtureId": fid,
                         "marketKey": "match_1x2",
                         "score": 80,
                         "approve": True,
                         "reason": "ok",
-                    },
-                    {
-                        "fixtureId": 2 if calls["n"] == 1 else 4,
-                        "marketKey": "match_1x2",
-                        "score": 80,
-                        "approve": True,
-                        "reason": "ok",
-                    },
+                    }
+                    for fid in fids
                 ]
             }
         )
@@ -297,19 +301,30 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
         "date_utc": "2026-08-30T15:00:00+00:00",
         "kickoff_display": "Sun 30 Aug · 16:00 WAT",
         "why": ["rating gap"],
+        "dg_sim_lean": "Home",
+        "book_lean": "Home",
+        "score": 0.4,
+        "probs": {"home": 0.7, "draw": 0.2, "away": 0.1},
+        "markets": {},
+    }
+    vet_day = {
+        "day": "2026-08-30",
+        "predictions": [{**_vet_prediction(7), "home_name": "Home FC", "away_name": "Away FC"}],
+        "picks": [],
+        "empty": False,
     }
 
     monkeypatch.setattr(
         best_leans,
         "load_strongest_day",
-        lambda date=None: {"day": date or "2026-08-30", "picks": [fake_pick], "empty": False},
+        lambda date=None: vet_day,
     )
 
     def fake_chat(system, user):
         assert "conservative" in system.lower() or "Score" in system or "JSON" in system
         return json.dumps(
             {
-                "scores": [
+                "picks": [
                     {
                         "fixtureId": 7,
                         "marketKey": "match_1x2",
@@ -329,9 +344,10 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vs,
         "load_strongest_day",
-        lambda date=None: {"day": date or "2026-08-30", "picks": [fake_pick], "empty": False},
+        lambda date=None: vet_day,
     )
     summary = vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["n_fixtures"] == 1
     assert summary["n_candidates"] == 1
     assert summary["written"] == 1
     assert summary["n_approved"] == 1
@@ -339,4 +355,82 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
 
     picks = load_ai_picks(conn, "2026-08-30")
     assert picks[0]["ai_score"] == 85
+    conn.close()
+
+
+def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    config.ensure_dirs()
+
+    pred = {
+        "fixture_id": 99,
+        "home_name": "Alpha",
+        "away_name": "Beta",
+        "lean": "Home",
+        "confidence": "high",
+        "score": 0.45,
+        "dg_sim_lean": "Home",
+        "book_lean": "Home",
+        "probs": {"home": 0.74, "draw": 0.16, "away": 0.10},
+        "markets": {
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.2,
+                "prob": 0.66,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            },
+            "btts": {
+                "lean": "Yes",
+                "confidence": "high",
+                "score": 0.25,
+                "prob": 0.67,
+                "dg_lean": "Yes",
+                "book_lean": "Yes",
+            },
+        },
+        "date_utc": "2026-08-30T15:00:00+00:00",
+        "kickoff_display": "Sun 30 Aug · 16:00 WAT",
+    }
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [pred],
+            "picks": [],
+            "empty": False,
+        },
+    )
+
+    def fake_chat(system, user):
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 99,
+                        "marketKey": "btts",
+                        "score": 88,
+                        "approve": True,
+                        "reason": "BTTS more coherent.",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 99)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["written"] == 1
+    from dg.ai.vet_strongest import load_ai_picks
+
+    picks = load_ai_picks(conn, "2026-08-30")
+    assert picks[0]["market_key"] == "btts"
     conn.close()

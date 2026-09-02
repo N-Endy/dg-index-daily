@@ -54,6 +54,18 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 
 **Final scores:** Flashscore scrapes run on the score schedule above (Playwright/Chromium in the image) via `sync-scores`, with football-data.co.uk as a secondary path. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
 
+
+**Market selection (optional):**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AI_VET_TOP_N` | `3` | Gate-passing candidates per fixture sent to LLM |
+| `STRONGEST_POISSON_PROB_EPSILON` | `0.03` | Prefer higher prob over Poisson tie-break when gap ≥ this |
+| `STRONGEST_USE_MARKET_HIT_RATES` | `0` | Use backtest hit rates as ranking tie-break |
+| `STRONGEST_MARKET_HIT_MIN_GRADED` | `100` | Min samples per market before hit rate applies |
+
+Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate.
+
 **AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens Strongest leans via an OpenAI-compatible API. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
 
 **Score near-miss (!):** set `SCORE_LINK_SECRET`, then visit `/score-link/unlock?token=YOUR_SECRET` once (HttpOnly cookie, 12h). Awaiting fixtures with soft Flashscore name matches show **!** — confirm a candidate to write **Final**.

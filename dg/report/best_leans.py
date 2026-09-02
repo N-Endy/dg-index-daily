@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from functools import cmp_to_key
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from dg import config
 from dg.model.markets import MARKET_ORDER
 from dg.report.loaders import (
     _fixture_sort_key,
@@ -40,6 +42,8 @@ POISSON_BACKED = frozenset(
 )
 
 _AGREE_RANK = {"aligned": 2, "partial": 1, "unknown": 0, "split": -1}
+
+_market_hit_rates_cache: Optional[Dict[str, float]] = None
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -140,6 +144,58 @@ def _rank_tuple(
     return (agree, n_sources, poisson, prob, abs_score)
 
 
+def _market_hit_rate(market_key: str, rates: Optional[Dict[str, float]]) -> float:
+    if not rates:
+        return 0.0
+    return float(rates.get(market_key, 0.0))
+
+
+def _better_candidate(
+    a: Dict[str, Any],
+    b: Dict[str, Any],
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> bool:
+    """Return True if candidate a should rank above b."""
+    ra = a["_rank"]
+    rb = b["_rank"]
+    if ra[0] != rb[0]:
+        return ra[0] > rb[0]
+    if ra[1] != rb[1]:
+        return ra[1] > rb[1]
+    pa, pb = ra[3], rb[3]
+    epsilon = config.STRONGEST_POISSON_PROB_EPSILON
+    if abs(pa - pb) >= epsilon:
+        return pa > pb
+    if market_hit_rates:
+        mka = str(a.get("market_key") or "")
+        mkb = str(b.get("market_key") or "")
+        hra = _market_hit_rate(mka, market_hit_rates)
+        hrb = _market_hit_rate(mkb, market_hit_rates)
+        if abs(hra - hrb) >= 0.01:
+            return hra > hrb
+    if ra[2] != rb[2]:
+        return ra[2] > rb[2]
+    if ra[3] != rb[3]:
+        return ra[3] > rb[3]
+    return ra[4] > rb[4]
+
+
+def _sort_candidates(
+    candidates: List[Dict[str, Any]],
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    def _cmp(a: Dict[str, Any], b: Dict[str, Any]) -> int:
+        if _better_candidate(a, b, market_hit_rates=market_hit_rates):
+            return -1
+        if _better_candidate(b, a, market_hit_rates=market_hit_rates):
+            return 1
+        return 0
+
+    return sorted(candidates, key=cmp_to_key(_cmp))
+
+
 def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     lean = m.get("lean")
     conf = m.get("confidence")
@@ -235,19 +291,14 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
     }
 
 
-def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Pick at most one conservative lean for a fixture from all markets + 1X2.
-    Returns None when nothing clears the high bar.
-    """
+def collect_gate_passing_candidates(pred: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """All markets + 1X2 that clear the Strongest hard gates for a fixture."""
     markets = _markets_dict(pred)
     probs = _probs_dict(pred)
-
     candidates: List[Dict[str, Any]] = []
     one_x2 = _candidate_1x2(pred, probs)
     if one_x2:
         candidates.append(one_x2)
-
     for key in MARKET_ORDER:
         m = markets.get(key)
         if not isinstance(m, dict):
@@ -255,11 +306,37 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         cand = _candidate_from_market(key, m)
         if cand:
             candidates.append(cand)
+    return candidates
 
-    if not candidates:
-        return None
 
-    best = max(candidates, key=lambda c: c["_rank"])
+def _market_result_labels(pred: Dict[str, Any]) -> Dict[str, Any]:
+    from dg.model.evaluate import _market_labels
+    from dg.model.markets import extract_market_lines
+
+    if not pred.get("result_row"):
+        return {}
+    return _market_labels(pred["result_row"], extract_market_lines(_markets_dict(pred)))
+
+
+def grade_candidate_result(pred: Dict[str, Any], candidate: Dict[str, Any]) -> Tuple[str, str]:
+    """Return (lean_result_key, lean_result_label) for a gate-passing candidate."""
+    from dg.report.results_attach import lean_result, market_lean_result
+
+    if not pred.get("completed"):
+        return "pending", ""
+    mkey = str(candidate.get("market_key") or "")
+    lean = candidate.get("lean")
+    if mkey == "match_1x2":
+        rk, rl = lean_result(lean, pred.get("ftr"))
+    else:
+        labels = _market_result_labels(pred)
+        rk, rl = market_lean_result(lean, labels.get(mkey))
+    if rk == "pending":
+        return rk, ""
+    return rk, "Lean hit" if rk == "hit" else "Lean miss"
+
+
+def _attach_fixture_fields(pred: Dict[str, Any], best: Dict[str, Any]) -> Dict[str, Any]:
     out = {
         "fixture_id": pred.get("fixture_id"),
         "home_name": pred.get("home_name"),
@@ -284,38 +361,68 @@ def select_strongest_lean(pred: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         **{k: v for k, v in best.items() if k != "_rank"},
         "_rank": best["_rank"],
     }
-    # Featured lean hit/miss when the fixture is completed
-    if out["completed"]:
-        from dg.report.results_attach import lean_result, market_lean_result
-        from dg.model.evaluate import _market_labels
-
-        if best["market_key"] == "match_1x2":
-            rk, rl = lean_result(best.get("lean"), pred.get("ftr"))
-        else:
-            labels = {}
-            if pred.get("result_row"):
-                from dg.model.markets import extract_market_lines
-
-                labels = _market_labels(
-                    pred["result_row"],
-                    extract_market_lines(_markets_dict(pred)),
-                )
-            rk, rl = market_lean_result(best.get("lean"), labels.get(best["market_key"]))
-        out["lean_result_key"] = rk
-        out["lean_result_label"] = rl if rk == "pending" else (
-            "Lean hit" if rk == "hit" else "Lean miss"
-        )
-    else:
-        out["lean_result_key"] = "pending"
-        out["lean_result_label"] = ""
+    rk, rl = grade_candidate_result(pred, best)
+    out["lean_result_key"] = rk
+    out["lean_result_label"] = rl
     return out
 
 
-def build_strongest_picks(predictions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_market_hit_rates(conn) -> Dict[str, float]:
+    """Load cached backtest hit rates per market for ranking tie-breaks."""
+    global _market_hit_rates_cache
+    if _market_hit_rates_cache is not None:
+        return _market_hit_rates_cache
+    from dg.report.market_reliability import market_hit_rates_from_backtest
+
+    _market_hit_rates_cache = market_hit_rates_from_backtest(conn)
+    return _market_hit_rates_cache
+
+
+def clear_market_hit_rates_cache() -> None:
+    global _market_hit_rates_cache
+    _market_hit_rates_cache = None
+
+
+def select_top_n_candidates(
+    pred: Dict[str, Any],
+    n: int = 3,
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    """Return up to n gate-passing candidates for a fixture, best first."""
+    raw = collect_gate_passing_candidates(pred)
+    if not raw:
+        return []
+    ranked = _sort_candidates(raw, market_hit_rates=market_hit_rates)
+    top = ranked[: max(1, int(n))]
+    return [_attach_fixture_fields(pred, c) for c in top]
+
+
+def select_strongest_lean(
+    pred: Dict[str, Any],
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pick at most one conservative lean for a fixture from all markets + 1X2.
+    Returns None when nothing clears the high bar.
+    """
+    picks = select_top_n_candidates(pred, 1, market_hit_rates=market_hit_rates)
+    if not picks:
+        return None
+    out = picks[0]
+    return out
+
+
+def build_strongest_picks(
+    predictions: List[Dict[str, Any]],
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
     """Select and rank strongest leans across fixtures (strongest first)."""
     picks: List[Dict[str, Any]] = []
     for pred in predictions:
-        pick = select_strongest_lean(pred)
+        pick = select_strongest_lean(pred, market_hit_rates=market_hit_rates)
         if pick:
             picks.append(pick)
     picks.sort(key=lambda p: p.get("_rank", (0, 0, 0, 0.0, 0.0)), reverse=True)
@@ -324,19 +431,66 @@ def build_strongest_picks(predictions: List[Dict[str, Any]]) -> List[Dict[str, A
     return picks
 
 
+def build_ai_vet_fixture_groups(
+    predictions: List[Dict[str, Any]],
+    *,
+    top_n: Optional[int] = None,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Group top-N gate-passing candidates per fixture for LLM market selection.
+    Returns list of {fixture_id, home_name, away_name, ..., candidates: [...]}.
+    """
+    n = int(top_n if top_n is not None else config.AI_VET_TOP_N)
+    groups: List[Dict[str, Any]] = []
+    for pred in predictions:
+        cands = select_top_n_candidates(pred, n, market_hit_rates=market_hit_rates)
+        if not cands:
+            continue
+        for c in cands:
+            c.pop("_rank", None)
+        groups.append(
+            {
+                "fixture_id": pred.get("fixture_id"),
+                "home_name": pred.get("home_name"),
+                "away_name": pred.get("away_name"),
+                "league": pred.get("league"),
+                "league_display": pred.get("league_display"),
+                "date_utc": pred.get("date_utc"),
+                "kickoff_display": pred.get("kickoff_display") or "",
+                "candidates": cands,
+            }
+        )
+    return groups
+
+
+def flatten_vet_groups(groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten fixture groups into a candidate list for gate_screen_scores."""
+    out: List[Dict[str, Any]] = []
+    for g in groups:
+        for c in g.get("candidates") or []:
+            out.append(c)
+    return out
+
+
 def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
     """Load today's (or given WAT date) dashboard rows and attach strongest picks."""
     from dg.report.scoreboard import recent_strongest_performance
+    from dg.report.selection_audit import selection_regret_audit
 
     day = date or today_wat()
     ctx = load_dashboard_context(date_filter=day)
     conn = get_connection()
     try:
         scoreboard = recent_strongest_performance(conn)
+        selection_audit = selection_regret_audit(conn)
+        market_hit_rates = None
+        if config.STRONGEST_USE_MARKET_HIT_RATES:
+            market_hit_rates = get_market_hit_rates(conn)
     finally:
         conn.close()
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
-    picks = build_strongest_picks(enriched)
+    picks = build_strongest_picks(enriched, market_hit_rates=market_hit_rates)
     picks.sort(key=_fixture_sort_key)
     return {
         **ctx,
@@ -346,4 +500,5 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
         "n_fixtures": len(enriched),
         "n_picks": len(picks),
         "scoreboard": scoreboard,
+        "selection_audit": selection_audit,
     }

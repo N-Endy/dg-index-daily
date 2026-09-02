@@ -80,3 +80,95 @@ def recent_strongest_performance(conn, *, days: int = 30) -> Dict[str, Any]:
             "many leagues only have full-time scores."
         ),
     }
+
+
+def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
+    """Grade stored ai_pick rows over the last N days where results exist."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT ap.day, ap.fixture_id, ap.market_key, ap.lean, ap.score, ap.reason,
+               ap.pick_json, f.date_utc, f.league, f.league_id, f.league_country,
+               f.home_name, f.away_name, f.home_id, f.away_id
+        FROM ai_pick ap
+        JOIN fixture f ON f.fixture_id = ap.fixture_id
+        WHERE f.date_utc >= ?
+        ORDER BY f.date_utc DESC
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    result_index = load_result_index(conn)
+    n_graded = 0
+    n_hits = 0
+    by_market: Dict[str, Dict[str, int]] = {}
+    by_day: Dict[str, Dict[str, int]] = {}
+
+    for r in rows:
+        d = dict(r)
+        try:
+            payload = json.loads(d.get("pick_json") or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        pred = {
+            "fixture_id": d["fixture_id"],
+            "home_name": d.get("home_name"),
+            "away_name": d.get("away_name"),
+            "home_id": d.get("home_id"),
+            "away_id": d.get("away_id"),
+            "date_utc": d.get("date_utc"),
+            "lean": payload.get("lean") or d.get("lean"),
+            "markets": payload.get("markets") or {},
+            "markets_json": json.dumps(payload.get("markets") or {}),
+        }
+        attach_result_to_prediction(pred, result_index)
+        if not pred.get("completed"):
+            continue
+
+        from dg.report.best_leans import grade_candidate_result
+
+        candidate = {
+            "market_key": d.get("market_key") or payload.get("market_key"),
+            "lean": payload.get("lean") or d.get("lean"),
+        }
+        rk, _ = grade_candidate_result(pred, candidate)
+        if rk not in ("hit", "miss"):
+            continue
+
+        n_graded += 1
+        day_key = str(d.get("day") or "")
+        if rk == "hit":
+            n_hits += 1
+        mk = str(candidate.get("market_key") or "unknown")
+        bucket = by_market.setdefault(mk, {"hits": 0, "graded": 0})
+        bucket["graded"] += 1
+        if rk == "hit":
+            bucket["hits"] += 1
+        day_bucket = by_day.setdefault(day_key, {"hits": 0, "graded": 0})
+        day_bucket["graded"] += 1
+        if rk == "hit":
+            day_bucket["hits"] += 1
+
+    hit_rate = (n_hits / n_graded) if n_graded else None
+    by_market_out: Dict[str, Any] = {}
+    for mk, stats in by_market.items():
+        g = stats["graded"]
+        by_market_out[mk] = {
+            "hits": stats["hits"],
+            "n_graded": g,
+            "hit_rate": stats["hits"] / g if g else None,
+        }
+
+    return {
+        "window_days": days,
+        "n_graded": n_graded,
+        "n_hits": n_hits,
+        "hit_rate": hit_rate,
+        "by_market": by_market_out,
+        "by_day": by_day,
+        "coverage_note": (
+            "AI Picks graded from stored pick_json against match_result where available."
+        ),
+    }

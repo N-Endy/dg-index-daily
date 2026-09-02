@@ -19,13 +19,16 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
     Uses today's WAT day by default; shows stored approvals from ai_pick.
     """
     day_key = day or today_wat()
-    # Reuse dashboard meta (stale banner, generated_at_display) for the day filter
     ctx = load_dashboard_context(date_filter=day_key)
     has_key = bool(config.OPENAI_API_KEY)
 
     conn = get_connection()
     try:
         picks = load_ai_picks(conn, day_key)
+        from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
+
+        ai_scoreboard = recent_ai_performance(conn)
+        strongest_scoreboard = recent_strongest_performance(conn)
     finally:
         conn.close()
 
@@ -42,7 +45,7 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
         )
     elif not picks:
         message = (
-            "None of today’s Strongest leans cleared the AI bar "
+            "None of today’s qualifying candidates cleared the AI bar "
             f"(approve + score ≥ {config.AI_VET_MIN_SCORE}), or vetting has not run yet."
         )
 
@@ -54,6 +57,9 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
         "has_openai_key": has_key,
         "ai_min_score": config.AI_VET_MIN_SCORE,
         "ai_model": config.OPENAI_MODEL,
+        "ai_top_n": config.AI_VET_TOP_N,
         "page_empty": empty_db or not picks,
         "message": message,
+        "ai_scoreboard": ai_scoreboard,
+        "strongest_scoreboard": strongest_scoreboard,
     }

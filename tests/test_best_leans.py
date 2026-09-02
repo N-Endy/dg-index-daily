@@ -4,7 +4,9 @@ from __future__ import annotations
 from dg.report.best_leans import (
     MIN_PROB,
     build_strongest_picks,
+    collect_gate_passing_candidates,
     select_strongest_lean,
+    select_top_n_candidates,
 )
 
 
@@ -153,7 +155,7 @@ def test_allows_single_signal_agreement():
     assert pick["agreement_key"] == "aligned"
 
 
-def test_prefers_poisson_over_corners_when_both_qualify():
+def test_prefers_higher_prob_when_gap_exceeds_epsilon():
     pred = _base_pred(
         markets={
             "corners_9_5": {
@@ -169,6 +171,32 @@ def test_prefers_poisson_over_corners_when_both_qualify():
                 "confidence": "high",
                 "score": 0.35,
                 "prob": 0.7,
+                "dg_lean": "Under",
+                "book_lean": "Under",
+            },
+        }
+    )
+    pick = select_strongest_lean(pred)
+    assert pick is not None
+    assert pick["market_key"] == "corners_9_5"
+
+
+def test_poisson_tiebreaker_when_probs_close():
+    pred = _base_pred(
+        markets={
+            "corners_9_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.55,
+                "prob": 0.71,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            },
+            "goals_2_5": {
+                "lean": "Under",
+                "confidence": "high",
+                "score": 0.35,
+                "prob": 0.70,
                 "dg_lean": "Under",
                 "book_lean": "Under",
             },
@@ -301,3 +329,52 @@ def test_build_strongest_picks_ranks_by_strength():
     assert len(picks) == 2
     assert picks[0]["fixture_id"] == 2
     assert "_rank" not in picks[0]
+
+
+def test_select_top_n_returns_multiple_markets():
+    pred = _base_pred(
+        lean="Home",
+        confidence="high",
+        score=0.45,
+        dg_sim_lean="Home",
+        book_lean="Home",
+        probs={"home": 0.74, "draw": 0.16, "away": 0.10},
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.2,
+                "prob": 0.66,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            },
+            "btts": {
+                "lean": "Yes",
+                "confidence": "high",
+                "score": 0.25,
+                "prob": 0.67,
+                "dg_lean": "Yes",
+                "book_lean": "Yes",
+            },
+        },
+    )
+    top = select_top_n_candidates(pred, 3)
+    assert len(top) == 3
+    keys = {t["market_key"] for t in top}
+    assert keys == {"match_1x2", "btts", "goals_2_5"}
+
+
+def test_collect_gate_passing_candidates_count():
+    pred = _base_pred(
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.72,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    assert len(collect_gate_passing_candidates(pred)) == 1

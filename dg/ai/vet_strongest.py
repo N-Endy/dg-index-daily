@@ -9,20 +9,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dg import config
 from dg.ai.openai_client import OpenAIError, chat_json
-from dg.report.best_leans import load_strongest_day
+from dg.report.best_leans import (
+    build_ai_vet_fixture_groups,
+    build_strongest_picks,
+    flatten_vet_groups,
+    get_market_hit_rates,
+    load_strongest_day,
+)
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a conservative football analyst reviewing pre-filtered directional leans "
     "from a rule-based ratings model (DataGaffer DG Index). "
-    "Score each candidate from 0 to 100 for how confident you are the lean is reasonable "
-    "given ONLY the provided fields (probability, confidence, DG/book agreement, drivers). "
+    "For each fixture you may see multiple market candidates that already passed hard gates. "
+    "Pick at most ONE candidate per fixture to publish (or none). "
+    "Choose the market whose lean is most coherent given ONLY the provided fields "
+    "(probability, confidence, DG/book agreement, drivers). "
     "Do not invent stats, injuries, lineups, or odds. "
-    "Set approve=true only when you would stand behind publishing the lean on a public "
-    "exploratory board; be selective. "
+    "Set approve=true only when you would stand behind publishing that lean; be selective. "
     "Respond with JSON only: "
-    '{"scores":[{"fixtureId":123,"marketKey":"goals_2_5","score":0-100,'
+    '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","score":0-100,'
     '"approve":true,"reason":"one short plain sentence"}]}.'
 )
 
@@ -55,6 +62,17 @@ def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "fixtureId": group.get("fixture_id"),
+        "homeTeam": group.get("home_name"),
+        "awayTeam": group.get("away_name"),
+        "league": group.get("league_display") or group.get("league"),
+        "kickoff": group.get("kickoff_display") or group.get("date_utc"),
+        "candidates": [candidate_payload(c) for c in (group.get("candidates") or [])],
+    }
+
+
 def _extract_json_object(raw: str) -> Dict[str, Any]:
     text = (raw or "").strip()
     if not text:
@@ -78,7 +96,13 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
 def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
     """Parse LLM JSON into a list of score rows (resilient to key casing)."""
     data = _extract_json_object(raw)
-    rows = data.get("scores") or data.get("Scores") or data.get("picks") or []
+    rows = (
+        data.get("picks")
+        or data.get("Picks")
+        or data.get("scores")
+        or data.get("Scores")
+        or []
+    )
     if not isinstance(rows, list):
         return []
     out: List[Dict[str, Any]] = []
@@ -204,11 +228,15 @@ def replace_ai_picks_for_day(
 
 
 def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
+    from dg.leagues import attach_league_display
+    from dg.report.results_attach import attach_result_to_prediction, load_result_index
+
     rows = conn.execute(
         """
         SELECT ap.day, ap.fixture_id, ap.market_key, ap.lean, ap.score, ap.reason,
                ap.model, ap.pick_json, ap.created_at,
-               f.league, f.league_id, f.league_country
+               f.league, f.league_id, f.league_country, f.date_utc,
+               f.home_name, f.away_name, f.home_id, f.away_id
         FROM ai_pick ap
         JOIN fixture f ON f.fixture_id = ap.fixture_id
         WHERE ap.day = ?
@@ -216,7 +244,7 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         """,
         (day,),
     ).fetchall()
-    from dg.leagues import attach_league_display
+    result_index = load_result_index(conn)
 
     out: List[Dict[str, Any]] = []
     for r in rows:
@@ -233,7 +261,34 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         payload.setdefault("league", d.get("league"))
         payload.setdefault("league_id", d.get("league_id"))
         payload.setdefault("league_country", d.get("league_country"))
+        payload.setdefault("home_name", d.get("home_name"))
+        payload.setdefault("away_name", d.get("away_name"))
+        payload.setdefault("date_utc", d.get("date_utc"))
         attach_league_display(payload)
+
+        pred = {
+            "fixture_id": d["fixture_id"],
+            "home_name": d.get("home_name"),
+            "away_name": d.get("away_name"),
+            "home_id": d.get("home_id"),
+            "away_id": d.get("away_id"),
+            "date_utc": d.get("date_utc"),
+            "markets": payload.get("markets") or {},
+        }
+        attach_result_to_prediction(pred, result_index)
+        from dg.report.best_leans import grade_candidate_result
+
+        candidate = {
+            "market_key": payload.get("market_key"),
+            "lean": payload.get("lean"),
+        }
+        rk, rl = grade_candidate_result(pred, candidate)
+        payload["completed"] = bool(pred.get("completed"))
+        payload["ft_score"] = pred.get("ft_score")
+        payload["awaiting_score"] = bool(pred.get("awaiting_score"))
+        payload["lean_result_key"] = rk
+        payload["lean_result_label"] = rl
+
         payload["ai_score"] = d["score"]
         payload["ai_reason"] = d.get("reason") or payload.get("ai_reason") or ""
         payload["ai_model"] = d.get("model")
@@ -247,6 +302,30 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
     return [items[i : i + n] for i in range(0, len(items), n)]
 
 
+def _build_vet_context(day_key: str) -> Dict[str, Any]:
+    ctx = load_strongest_day(date=day_key)
+    market_hit_rates = None
+    if config.STRONGEST_USE_MARKET_HIT_RATES:
+        from dg.report.loaders import get_connection
+
+        conn = get_connection()
+        try:
+            market_hit_rates = get_market_hit_rates(conn)
+        finally:
+            conn.close()
+    groups = build_ai_vet_fixture_groups(
+        ctx.get("predictions") or [],
+        market_hit_rates=market_hit_rates,
+    )
+    ctx["vet_groups"] = groups
+    ctx["vet_candidates"] = flatten_vet_groups(groups)
+    ctx["fallback_picks"] = ctx.get("picks") or build_strongest_picks(
+        ctx.get("predictions") or [],
+        market_hit_rates=market_hit_rates,
+    )
+    return ctx
+
+
 def vet_strongest_for_day(
     conn,
     *,
@@ -254,7 +333,7 @@ def vet_strongest_for_day(
     chat_fn=None,
 ) -> Dict[str, Any]:
     """
-    Load strongest picks for day, screen with LLM, persist approvals.
+    Load top-N gate-passing candidates per fixture, LLM-pick markets, persist approvals.
     chat_fn: injectable (system, user) -> str for tests.
     """
     from dg.report.loaders import today_wat
@@ -264,6 +343,7 @@ def vet_strongest_for_day(
     summary: Dict[str, Any] = {
         "day": day_key,
         "model": model,
+        "n_fixtures": 0,
         "n_candidates": 0,
         "n_batches": 0,
         "n_approved": 0,
@@ -280,17 +360,18 @@ def vet_strongest_for_day(
         logger.warning(summary["message"])
         return summary
 
-    ctx = load_strongest_day(date=day_key)
-    candidates = list(ctx.get("picks") or [])
+    ctx = _build_vet_context(day_key)
+    groups = list(ctx.get("vet_groups") or [])
+    candidates = list(ctx.get("vet_candidates") or [])
+    summary["n_fixtures"] = len(groups)
     summary["n_candidates"] = len(candidates)
-    if not candidates:
+    if not groups:
         summary["skipped_no_candidates"] = True
-        # Clear stale approvals for the day when strongest is empty
         replace_ai_picks_for_day(conn, day_key, [], model=model)
         summary["message"] = "No strongest picks to vet"
         return summary
 
-    batches = _chunked(candidates, config.AI_VET_BATCH_SIZE)
+    batches = _chunked(groups, config.AI_VET_BATCH_SIZE)
     summary["n_batches"] = len(batches)
     all_scores: List[Dict[str, Any]] = []
 
@@ -301,12 +382,13 @@ def vet_strongest_for_day(
                 "batch": bi,
                 "batchCount": len(batches),
                 "minScoreHint": config.AI_VET_MIN_SCORE,
-                "candidates": [candidate_payload(p) for p in batch],
+                "fixtures": [fixture_group_payload(g) for g in batch],
             }
             user = (
-                f"Score these {len(batch)} Strongest-lean candidates for {day_key} "
-                f"(batch {bi}/{len(batches)}). "
-                f"Be selective; approve only those you are confident publishing.\n"
+                f"For each fixture below, pick at most one market candidate to publish "
+                f"for {day_key} (batch {bi}/{len(batches)}). "
+                f"Use approve=false or omit fixtures you would not publish. "
+                f"Be selective; only approve when confident.\n"
                 f"{json.dumps(payload, ensure_ascii=False)}"
             )
             if chat_fn is not None:
@@ -319,7 +401,7 @@ def vet_strongest_for_day(
                 )
             batch_scores = parse_screen_response(raw)
             logger.info(
-                "AI vet batch %s/%s: %s scores from %s candidates",
+                "AI vet batch %s/%s: %s picks from %s fixtures",
                 bi,
                 len(batches),
                 len(batch_scores),
@@ -328,10 +410,12 @@ def vet_strongest_for_day(
             all_scores.extend(batch_scores)
 
         approved = gate_screen_scores(candidates, all_scores)
+        if not approved and all_scores:
+            logger.warning("AI vet: LLM returned scores but none passed gate — no fallback")
         written = replace_ai_picks_for_day(conn, day_key, approved, model=model)
         summary["n_approved"] = len(approved)
         summary["written"] = written
-        summary["message"] = f"Approved {written} of {len(candidates)}"
+        summary["message"] = f"Approved {written} of {len(groups)} fixtures ({len(candidates)} candidates)"
         logger.info("AI vet: %s", summary)
         return summary
     except OpenAIError as exc:
