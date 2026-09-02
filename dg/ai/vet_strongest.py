@@ -236,7 +236,8 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         SELECT ap.day, ap.fixture_id, ap.market_key, ap.lean, ap.score, ap.reason,
                ap.model, ap.pick_json, ap.created_at,
                f.league, f.league_id, f.league_country, f.date_utc,
-               f.home_name, f.away_name, f.home_id, f.away_id
+               f.home_name, f.away_name, f.home_id, f.away_id,
+               f.home_logo, f.away_logo, f.is_neutral
         FROM ai_pick ap
         JOIN fixture f ON f.fixture_id = ap.fixture_id
         WHERE ap.day = ?
@@ -264,6 +265,13 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         payload.setdefault("home_name", d.get("home_name"))
         payload.setdefault("away_name", d.get("away_name"))
         payload.setdefault("date_utc", d.get("date_utc"))
+        payload["home_logo"] = d.get("home_logo") or payload.get("home_logo")
+        payload["away_logo"] = d.get("away_logo") or payload.get("away_logo")
+        payload["is_neutral"] = bool(
+            d.get("is_neutral")
+            if d.get("is_neutral") is not None
+            else payload.get("is_neutral")
+        )
         attach_league_display(payload)
 
         pred = {

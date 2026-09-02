@@ -238,7 +238,9 @@ def test_replace_and_load_ai_picks(tmp_path):
     conn = init_db(connect(tmp_path / "ai.db"))
     _seed_fixture(conn, 42, league_id=40)
     conn.execute(
-        "UPDATE fixture SET league = 'Championship', league_country = 'England' WHERE fixture_id = 42"
+        "UPDATE fixture SET league = 'Championship', league_country = 'England', "
+        "home_logo = 'https://example.com/home.png', away_logo = 'https://example.com/away.png' "
+        "WHERE fixture_id = 42"
     )
     approved = [
         {
@@ -258,6 +260,8 @@ def test_replace_and_load_ai_picks(tmp_path):
     assert len(loaded) == 1
     assert loaded[0]["ai_score"] == 81
     assert "Strong over" in loaded[0]["ai_reason"]
+    assert loaded[0]["home_logo"] == "https://example.com/home.png"
+    assert loaded[0]["away_logo"] == "https://example.com/away.png"
     conn.close()
 
 

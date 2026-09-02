@@ -158,9 +158,10 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
 
     monkeypatch.setattr(config, "OPENAI_API_KEY", "present")
     conn = init_db(connect(config.DB_PATH))
-    fx = conn.execute("SELECT fixture_id FROM fixture LIMIT 1").fetchone()
+    fx = conn.execute("SELECT fixture_id, home_logo FROM fixture LIMIT 1").fetchone()
     assert fx is not None
     fixture_id = int(fx["fixture_id"])
+    home_logo = fx["home_logo"]
     day = today_wat()
     replace_ai_picks_for_day(
         conn,
@@ -193,6 +194,9 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     assert "Alpha" in r.text and "Beta" in r.text
     assert "AI 88" in r.text
     assert "Clear home edge" in r.text
+    if home_logo:
+        assert "team-logo" in r.text
+        assert home_logo in r.text
 
 
 def test_score_link_confirm_requires_secret(web_client, monkeypatch):
