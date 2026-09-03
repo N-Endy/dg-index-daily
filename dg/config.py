@@ -201,6 +201,8 @@ STRONGEST_AUC_MIN_WEEKS = int(os.environ.get("STRONGEST_AUC_MIN_WEEKS", "8"))
 # Market calibration for AI publish estimates
 MARKET_CALIBRATION_SHRINKAGE = float(os.environ.get("MARKET_CALIBRATION_SHRINKAGE", "50"))
 MARKET_CALIBRATION_DEFAULT_RATE = float(os.environ.get("MARKET_CALIBRATION_DEFAULT_RATE", "0.50"))
+# Below this many live-tag graded joins, Est.% calib falls back to all model tags.
+MARKET_CALIBRATION_MIN_GRADED = int(os.environ.get("MARKET_CALIBRATION_MIN_GRADED", "200"))
 
 # Per-market probability calibration (dashboard / Strongest displayed %)
 MARKET_PROB_CALIBRATION_ENABLED = os.environ.get(

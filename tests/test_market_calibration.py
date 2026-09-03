@@ -336,3 +336,55 @@ def test_agree2_outranks_agree1_same_market_prob(tmp_path, monkeypatch):
     assert s2 > s1
     assert r2["rate"] > r1["rate"]
     conn.close()
+
+
+def test_store_empty_preserves_existing_rows(tmp_path):
+    """Cold/empty calibration payload must not wipe last-good Est.% rates."""
+    conn = init_db(connect(tmp_path / "preserve.db"))
+    store_market_calibration(
+        conn,
+        {
+            "calibration": [
+                {
+                    "market_key": "goals_2_5",
+                    "agreement_tier": "agree2",
+                    "prob_band": "all",
+                    "n_graded": 100,
+                    "hits": 62,
+                    "hit_rate": 0.62,
+                },
+                {
+                    "market_key": "all",
+                    "agreement_tier": "all",
+                    "prob_band": "all",
+                    "n_graded": 100,
+                    "hits": 62,
+                    "hit_rate": 0.62,
+                },
+            ]
+        },
+    )
+    assert load_market_calibration(conn)
+    n = store_market_calibration(conn, {"calibration": []})
+    assert n == 0
+    loaded = load_market_calibration(conn)
+    assert loaded[("goals_2_5", "agree2", "all")]["hit_rate"] == 0.62
+    assert loaded[("all", "all", "all")]["n_graded"] == 100
+    n2 = store_market_calibration(
+        conn,
+        {
+            "calibration": [
+                {
+                    "market_key": "all",
+                    "agreement_tier": "all",
+                    "prob_band": "all",
+                    "n_graded": 0,
+                    "hits": 0,
+                    "hit_rate": 0.0,
+                }
+            ]
+        },
+    )
+    assert n2 == 0
+    assert load_market_calibration(conn)[("goals_2_5", "agree2", "all")]["n_graded"] == 100
+    conn.close()

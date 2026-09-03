@@ -799,3 +799,204 @@ def test_persist_flashscore_rows_stores_match_id(tmp_path, monkeypatch):
     row = conn.execute("SELECT match_id FROM flashscore_row").fetchone()
     assert row["match_id"] == "xA2hsg4F"
     conn.close()
+
+
+def _seed_stats_candidate(conn, *, fixture_id: int = 1557377) -> None:
+    """Past predicted fixture with goals but no corner stats."""
+    from dg import config
+
+    conn.execute(
+        "INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams) VALUES (?,?,?,?)",
+        ("2026-08-30T00:00:00+00:00", "2026-08-30T00:00:00+00:00", "x", 1),
+    )
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            fixture_id,
+            "2026-08-28T14:00:00+00:00",
+            "Championship",
+            40,
+            69,
+            76,
+            "Derby",
+            "Swansea",
+            "2026-08-28T00:00:00+00:00",
+            "2026-08-28T00:00:00+00:00",
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, snapshot_id, model_version, predicted_at,
+            lean, confidence, match_character, score, scores_json, drivers_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            fixture_id,
+            1,
+            "test",
+            "2026-08-28T00:00:00+00:00",
+            "Home",
+            "high",
+            "open",
+            0.3,
+            "{}",
+            "[]",
+        ),
+    )
+    # Conflict key must match upsert_score_result (ISO date + fixture league name).
+    conn.execute(
+        """
+        INSERT INTO match_result (
+            source, season, league_code, date, home_name, away_name,
+            home_team_id, away_team_id, fthg, ftag, ftr
+        ) VALUES (?, ?, 'Championship', '2026-08-28', 'Derby', 'Swansea', 69, 76, 2, 1, 'H')
+        """,
+        ("flashscore", config.DEFAULT_FD_SEASON),
+    )
+    conn.commit()
+
+
+def test_sync_match_stats_bootstraps_match_ids(tmp_path, monkeypatch):
+    """When flashscore_row lacks match_id, day-page scrape fills IDs then fetches stats."""
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+    from dg.ingest.fixture_scores import sync_match_stats
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stats_boot.db")
+    monkeypatch.setattr(config, "FLASHSCORE_STATS_ENABLED", True)
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    _seed_stats_candidate(conn)
+
+    # Existing scrape without match_id (pre-deploy shape).
+    from dg.report.score_hints import persist_flashscore_rows
+
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "home": "Derby",
+                "away": "Swansea",
+                "fthg": 2,
+                "ftag": 1,
+                "league": "ENGLAND: Championship",
+                "match_id": None,
+                "day_offset": -6,
+            }
+        ],
+    )
+    conn.commit()
+
+    scrape_calls = {"n": 0}
+
+    def fake_scrape(*, day_offsets=None):
+        scrape_calls["n"] += 1
+        return [
+            {
+                "home": "Derby",
+                "away": "Swansea",
+                "fthg": 2,
+                "ftag": 1,
+                "league": "ENGLAND: Championship",
+                "match_id": "bootMatch1",
+                "day_offset": -6,
+                "is_live": False,
+            }
+        ]
+
+    def fake_fetch(ids):
+        assert "bootMatch1" in ids
+        return {
+            "bootMatch1": {
+                "hs": 12,
+                "as_shots": 8,
+                "hst": 4,
+                "ast": 2,
+                "hc": 5,
+                "ac": 3,
+                "hy": 1,
+                "ay": 2,
+            }
+        }
+
+    monkeypatch.setattr(fs, "scrape_finished_scores", fake_scrape)
+    monkeypatch.setattr(
+        "dg.sources.flashscore.fetch_match_stats", fake_fetch
+    )
+
+    summary = sync_match_stats(conn)
+    assert scrape_calls["n"] == 1
+    assert summary["ids_bootstrapped"] == 1
+    assert summary["written"] == 1
+    mid = conn.execute("SELECT match_id FROM flashscore_row").fetchone()["match_id"]
+    assert mid == "bootMatch1"
+    hc = conn.execute("SELECT hc FROM match_result").fetchone()["hc"]
+    assert int(hc) == 5
+    conn.close()
+
+
+def test_sync_match_stats_skips_day_scrape_when_ids_present(tmp_path, monkeypatch):
+    """Existing match_ids must not trigger another day-page scrape."""
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+    from dg.ingest.fixture_scores import sync_match_stats
+    from dg.report.score_hints import persist_flashscore_rows
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stats_ids.db")
+    monkeypatch.setattr(config, "FLASHSCORE_STATS_ENABLED", True)
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    _seed_stats_candidate(conn)
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "home": "Derby",
+                "away": "Swansea",
+                "fthg": 2,
+                "ftag": 1,
+                "league": "ENGLAND: Championship",
+                "match_id": "alreadyThere",
+                "day_offset": -6,
+            }
+        ],
+    )
+    conn.commit()
+
+    def boom_scrape(*, day_offsets=None):
+        raise AssertionError("day scrape should be skipped when match_ids exist")
+
+    def fake_fetch(ids):
+        assert ids == ["alreadyThere"]
+        return {
+            "alreadyThere": {
+                "hs": 10,
+                "as_shots": 7,
+                "hst": 3,
+                "ast": 1,
+                "hc": 4,
+                "ac": 2,
+                "hy": 0,
+                "ay": 1,
+            }
+        }
+
+    monkeypatch.setattr(fs, "scrape_finished_scores", boom_scrape)
+    monkeypatch.setattr(
+        "dg.sources.flashscore.fetch_match_stats", fake_fetch
+    )
+
+    summary = sync_match_stats(conn)
+    assert summary["ids_bootstrapped"] == 0
+    assert summary["written"] == 1
+    assert int(conn.execute("SELECT hc FROM match_result").fetchone()["hc"]) == 4
+    conn.close()

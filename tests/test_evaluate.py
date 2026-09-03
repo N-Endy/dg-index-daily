@@ -351,3 +351,76 @@ def test_evaluate_ignores_stale_markets_tag(tmp_path):
     summary = evaluate_joined(conn)
     conn.close()
     assert summary["n"] == 0
+
+
+def test_evaluate_calibration_fallback_uses_all_tags(tmp_path, monkeypatch):
+    """Thin live-tag history rebuilds Est.% calibration from all model tags."""
+    from dg import config
+
+    monkeypatch.setattr(config, "MARKET_CALIBRATION_MIN_GRADED", 5)
+
+    conn = connect(tmp_path / "calib_fb.db")
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams)
+        VALUES ('2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', 'x', 1)
+        """
+    )
+
+    def _add(fid: int, home_id: int, away_id: int, day: str, mv: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO fixture (
+                fixture_id, date_utc, league, home_name, away_name, home_id, away_id,
+                first_seen_at, last_seen_at
+            ) VALUES (?, ?, 'Test', 'A', 'B', ?, ?, ?, ?)
+            """,
+            (fid, f"{day}T15:00:00+00:00", home_id, away_id, day, day),
+        )
+        conn.execute(
+            """
+            INSERT INTO prediction (
+                fixture_id, snapshot_id, predicted_at, model_version,
+                lean, confidence, score, drivers_json, markets_json, probs_json
+            ) VALUES (
+                ?, 1, '2026-01-01T00:00:00+00:00', ?,
+                'Home', 'high', 0.4, '[]',
+                '{"goals_2_5":{"lean":"Over","confidence":"high","prob":0.7,"dg_lean":"Over","book_lean":"Over"}}',
+                '{"home":0.7,"draw":0.2,"away":0.1}'
+            )
+            """,
+            (fid, mv),
+        )
+        # DD/MM/YYYY for football-data style dates
+        d, m, y = day[8:10], day[5:7], day[0:4]
+        conn.execute(
+            """
+            INSERT INTO match_result (
+                source, season, league_code, date, home_name, away_name,
+                home_team_id, away_team_id, fthg, ftag, ftr
+            ) VALUES ('football-data.co.uk', '2627', 'T1', ?, 'A', 'B', ?, ?, 2, 1, 'H')
+            """,
+            (f"{d}/{m}/{y}", home_id, away_id),
+        )
+
+    live = _live_model_version()
+    stale = "rule_v2_deadbeef01+markets_v2_deadbeef02"
+    _add(1, 10, 20, "2026-05-01", live)
+    for i in range(6):
+        _add(100 + i, 100 + i, 200 + i, f"2026-05-{i + 2:02d}", stale)
+    conn.commit()
+
+    summary = evaluate_joined(conn)
+    conn.close()
+    assert summary["n"] == 1  # headline stays live-tag only
+    assert summary["n_joined_live_tag"] == 1
+    assert summary["calibration_fallback"] is True
+    global_row = next(
+        r
+        for r in summary["calibration"]
+        if r["market_key"] == "all"
+        and r["agreement_tier"] == "all"
+        and r["prob_band"] == "all"
+    )
+    assert global_row["n_graded"] >= 7

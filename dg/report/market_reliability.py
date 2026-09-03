@@ -1,10 +1,13 @@
 """Backtest-derived per-market reliability for Strongest ranking and AI publish estimates."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from dg import config
+
+logger = logging.getLogger(__name__)
 
 # Probability bands used for calibration buckets.
 PROB_BAND_ORDER: Tuple[str, ...] = ("lt_75", "75_85", "85_92", "92_plus")
@@ -195,11 +198,14 @@ def finalize_calibration_rows(
 
 
 def store_market_calibration(conn, summary: Dict[str, Any]) -> int:
-    """Replace market_calibration rows from evaluate_joined summary['calibration']."""
+    """Replace market_calibration rows from evaluate_joined summary['calibration'].
+
+    When the incoming payload has no insertable rows, leave the existing table
+    untouched so a cold model-tag cutover cannot wipe last-good Est.% rates.
+    """
     rows = list(summary.get("calibration") or [])
     now = datetime.now(timezone.utc).isoformat()
-    conn.execute("DELETE FROM market_calibration")
-    n = 0
+    insertable: List[Tuple[Any, ...]] = []
     for row in rows:
         mkey = str(row.get("market_key") or "")
         tier = str(row.get("agreement_tier") or "all")
@@ -213,17 +219,24 @@ def store_market_calibration(conn, summary: Dict[str, Any]) -> int:
         hit_rate = float(
             row.get("hit_rate") if row.get("hit_rate") is not None else hits / n_graded
         )
+        insertable.append((mkey, tier, band, n_graded, hits, hit_rate, now))
+    if not insertable:
+        logger.warning(
+            "store_market_calibration: empty payload — preserving existing rows"
+        )
+        return 0
+    conn.execute("DELETE FROM market_calibration")
+    for values in insertable:
         conn.execute(
             """
             INSERT INTO market_calibration (
                 market_key, agreement_tier, prob_band, n_graded, hits, hit_rate, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (mkey, tier, band, n_graded, hits, hit_rate, now),
+            values,
         )
-        n += 1
     conn.commit()
-    return n
+    return len(insertable)
 
 
 def load_market_calibration(conn) -> Dict[CalibKey, Dict[str, Any]]:

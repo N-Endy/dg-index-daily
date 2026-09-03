@@ -600,6 +600,7 @@ def sync_match_stats(conn) -> Dict[str, Any]:
         "enabled": bool(config.FLASHSCORE_STATS_ENABLED),
         "candidates": 0,
         "with_match_id": 0,
+        "ids_bootstrapped": 0,
         "fetched": 0,
         "written": 0,
         "skipped_disabled": False,
@@ -617,14 +618,44 @@ def sync_match_stats(conn) -> Dict[str, Any]:
     if not candidates:
         return summary
 
-    from dg.report.score_hints import load_recent_flashscore_rows
+    from dg.report.score_hints import load_recent_flashscore_rows, persist_flashscore_rows
     from dg.sources.flashscore import fetch_match_stats
 
     scraped = load_recent_flashscore_rows(conn, limit=8000)
     scraped_with_id = [r for r in scraped if (r.get("match_id") or "").strip()]
     if not scraped_with_id:
-        logger.info("sync-match-stats: no flashscore_row match_ids yet")
-        return summary
+        # Score sync exits early once goals exist, so match_id may never have
+        # been written. Scrape day pages here solely to bootstrap IDs.
+        offsets = day_offsets_for_candidates(candidates)
+        try:
+            bootstrap_rows = scrape_finished_scores(day_offsets=offsets)
+        except FlashscoreCooldownError as exc:
+            logger.warning("%s", exc)
+            summary["skipped_cooldown"] = True
+            summary["errors"] = 1
+            return summary
+        except FlashscoreBlockedError as exc:
+            logger.warning("Flashscore blocked while bootstrapping match_ids: %s", exc)
+            summary["skipped_blocked"] = True
+            summary["errors"] = 1
+            return summary
+        except FlashscoreUnavailableError as exc:
+            logger.warning(
+                "Flashscore unavailable while bootstrapping match_ids: %s", exc
+            )
+            summary["skipped_unavailable"] = True
+            summary["errors"] = 1
+            return summary
+        persist_flashscore_rows(conn, bootstrap_rows)
+        conn.commit()
+        summary["ids_bootstrapped"] = sum(
+            1 for r in bootstrap_rows if (r.get("match_id") or "").strip()
+        )
+        scraped = load_recent_flashscore_rows(conn, limit=8000)
+        scraped_with_id = [r for r in scraped if (r.get("match_id") or "").strip()]
+        if not scraped_with_id:
+            logger.info("sync-match-stats: no flashscore_row match_ids after bootstrap")
+            return summary
 
     planned: List[Tuple[Dict[str, Any], Dict[str, Any], bool]] = []
     used_fps: Set[str] = set()

@@ -387,12 +387,74 @@ def _accumulate_row(
     return True
 
 
+def _fetch_joined_prediction_rows(conn, *, model_tag: Optional[str] = None):
+    """Latest prediction per fixture, optionally filtered to a markets model tag."""
+    sql = """
+        SELECT
+            p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
+            f.home_id, f.away_id, f.date_utc, f.home_name, f.away_name,
+            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json
+        FROM prediction p
+        JOIN fixture f ON f.fixture_id = p.fixture_id
+        LEFT JOIN fixture_projection fp ON fp.id = (
+            SELECT id FROM fixture_projection
+            WHERE fixture_id = f.fixture_id
+            ORDER BY observed_at DESC LIMIT 1
+        )
+        WHERE p.id IN (SELECT MAX(id) FROM prediction GROUP BY fixture_id)
+    """
+    params: Tuple[Any, ...] = ()
+    if model_tag:
+        sql += " AND p.model_version LIKE ?"
+        params = (f"%+{model_tag}",)
+    return conn.execute(sql, params).fetchall()
+
+
+def _record_row_calibration(
+    calibration_raw: Dict[Tuple[str, str, str], List[int]],
+    r: Any,
+    mr: Any,
+) -> None:
+    """Accumulate Est.% calibration cells for one joined prediction/result pair."""
+    book_odds: Dict[str, Any] = {}
+    if r["book_odds_json"]:
+        try:
+            book_odds = json.loads(r["book_odds_json"]) or {}
+        except (json.JSONDecodeError, TypeError):
+            book_odds = {}
+    _record_1x2_calibration(
+        calibration_raw,
+        r["lean"],
+        mr["ftr"],
+        r["probs_json"] if "probs_json" in r.keys() else None,
+        home_win_pct=r["home_win_pct"],
+        draw_pct=r["draw_pct"],
+        away_win_pct=r["away_win_pct"],
+        book_odds=book_odds,
+    )
+    markets: Dict[str, Any] = {}
+    if r["markets_json"]:
+        try:
+            markets = json.loads(r["markets_json"]) or {}
+        except (json.JSONDecodeError, TypeError):
+            markets = {}
+    if markets:
+        _score_market_row(
+            {},
+            markets=markets,
+            labels=_market_labels(mr, extract_market_lines(markets)),
+            book_odds=book_odds,
+            calibration=calibration_raw,
+        )
+
+
 def evaluate_joined(conn) -> Dict[str, Any]:
     """
     Score stored predictions that have matched results, and (when that set is
     empty) retrospectively score resolved historical match_result rows using
     the latest DG snapshot + rule_v1. Also scores markets_json where labels exist.
     """
+    from dg import config
     from dg.report.results_attach import build_result_index, fixture_day
 
     result_index = build_result_index(
@@ -409,24 +471,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
     )
 
     tag = markets_model_tag()
-    rows = conn.execute(
-        """
-        SELECT
-            p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
-            f.home_id, f.away_id, f.date_utc, f.home_name, f.away_name,
-            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json
-        FROM prediction p
-        JOIN fixture f ON f.fixture_id = p.fixture_id
-        LEFT JOIN fixture_projection fp ON fp.id = (
-            SELECT id FROM fixture_projection
-            WHERE fixture_id = f.fixture_id
-            ORDER BY observed_at DESC LIMIT 1
-        )
-        WHERE p.id IN (SELECT MAX(id) FROM prediction GROUP BY fixture_id)
-          AND p.model_version LIKE ?
-        """,
-        (f"%+{tag}",),
-    ).fetchall()
+    rows = _fetch_joined_prediction_rows(conn, model_tag=tag)
 
     metrics: Dict[str, Dict[str, List[float]]] = {
         "rule": {"brier": [], "logloss": []},
@@ -436,7 +481,9 @@ def evaluate_joined(conn) -> Dict[str, Any]:
     market_metrics: Dict[str, Dict[str, List[float]]] = {}
     calibration_raw: Dict[Tuple[str, str, str], List[int]] = {}
     n = 0
+    n_joined = 0
     mode = "joined_predictions"
+    calibration_fallback = False
 
     for r in rows:
         day = fixture_day(r["date_utc"])
@@ -450,6 +497,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         mr = result_index.get((hid, aid, day))
         if mr is None:
             continue
+        n_joined += 1
 
         outcome = (mr["ftr"] or "").upper()
         if _accumulate_row(
@@ -497,6 +545,37 @@ def evaluate_joined(conn) -> Dict[str, Any]:
                 labels=_market_labels(mr, extract_market_lines(markets)),
                 book_odds=book_odds,
                 calibration=calibration_raw,
+            )
+
+    min_graded = int(getattr(config, "MARKET_CALIBRATION_MIN_GRADED", 200))
+    if 0 < n_joined < min_graded:
+        # Rebuild Est.% bases from all model tags until live tag is powered.
+        all_rows = _fetch_joined_prediction_rows(conn, model_tag=None)
+        fallback_raw: Dict[Tuple[str, str, str], List[int]] = {}
+        fallback_joined = 0
+        for r in all_rows:
+            day = fixture_day(r["date_utc"])
+            try:
+                hid = int(r["home_id"]) if r["home_id"] is not None else None
+                aid = int(r["away_id"]) if r["away_id"] is not None else None
+            except (TypeError, ValueError):
+                hid = aid = None
+            if hid is None or aid is None or not day:
+                continue
+            mr = result_index.get((hid, aid, day))
+            if mr is None:
+                continue
+            fallback_joined += 1
+            _record_row_calibration(fallback_raw, r, mr)
+        if fallback_joined > n_joined:
+            calibration_raw = fallback_raw
+            calibration_fallback = True
+            logger.info(
+                "Est.%% calibration fallback: live-tag joined=%d < %d; "
+                "using all-tag joined=%d",
+                n_joined,
+                min_graded,
+                fallback_joined,
             )
 
     if n == 0:
@@ -590,7 +669,14 @@ def evaluate_joined(conn) -> Dict[str, Any]:
     def _hit_rate(hits: List[int]) -> Optional[float]:
         return sum(hits) / len(hits) if hits else None
 
-    summary: Dict[str, Any] = {"n": n, "mode": mode, "models": {}, "markets": {}}
+    summary: Dict[str, Any] = {
+        "n": n,
+        "mode": mode,
+        "models": {},
+        "markets": {},
+        "calibration_fallback": calibration_fallback,
+        "n_joined_live_tag": n_joined,
+    }
     for name, m in metrics.items():
         hits = m.get("hits", [])
         summary["models"][name] = {
