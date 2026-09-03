@@ -183,6 +183,15 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
                 "agreement_label": "Aligned",
                 "ai_score": 88,
                 "ai_reason": "Clear home edge on the sheet.",
+                "ai_base_rate": 0.62,
+                "ai_base_n": 384,
+                "ai_base_band": "92_plus",
+                "ai_base_market": "match_1x2",
+                "ai_base_tier": "agree2",
+                "ai_base_market_label": "match winner",
+                "ai_base_band_label": "92%+",
+                "ai_base_tier_label": "both sources agree",
+                "ai_components": {"coherence": 2, "concerns": []},
                 "why": ["rating gap"],
             }
         ],
@@ -192,8 +201,11 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     r = web_client.get("/ai-picks")
     assert r.status_code == 200
     assert "Alpha" in r.text and "Beta" in r.text
-    assert "Publish conf. 88" in r.text
+    assert "Est. 88%" in r.text
     assert "Clear home edge" in r.text
+    assert "Basis:" in r.text
+    assert "both sources agree" in r.text
+    assert "landed 62%" in r.text
     if home_logo:
         assert "team-logo" in r.text
         assert home_logo in r.text

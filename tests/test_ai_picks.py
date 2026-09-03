@@ -87,38 +87,213 @@ def test_extract_message_content_from_parts():
     )
 
 
+def _seed_calibration(conn, *, market_key="goals_2_5", band="92_plus", rate=0.62, n=400):
+    from dg.report.market_reliability import store_market_calibration
+
+    hits = int(round(rate * n))
+    rows = [
+        {
+            "market_key": market_key,
+            "agreement_tier": "agree2",
+            "prob_band": band,
+            "n_graded": n,
+            "hits": hits,
+            "hit_rate": rate,
+        },
+        {
+            "market_key": market_key,
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": hits,
+            "hit_rate": rate,
+        },
+        {
+            "market_key": market_key,
+            "agreement_tier": "agree1",
+            "prob_band": band,
+            "n_graded": n,
+            "hits": int(round(0.48 * n)),
+            "hit_rate": 0.48,
+        },
+        {
+            "market_key": market_key,
+            "agreement_tier": "agree1",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": int(round(0.48 * n)),
+            "hit_rate": 0.48,
+        },
+        {
+            "market_key": "all",
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n * 2,
+            "hits": hits * 2,
+            "hit_rate": rate,
+        },
+        {
+            "market_key": "all",
+            "agreement_tier": "agree1",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": int(round(0.48 * n)),
+            "hit_rate": 0.48,
+        },
+        {
+            "market_key": "all",
+            "agreement_tier": "all",
+            "prob_band": "all",
+            "n_graded": n * 3,
+            "hits": hits * 2 + int(round(0.48 * n)),
+            "hit_rate": 0.56,
+        },
+        {
+            "market_key": "btts",
+            "agreement_tier": "agree2",
+            "prob_band": "lt_75",
+            "n_graded": n,
+            "hits": int(round(0.59 * n)),
+            "hit_rate": 0.59,
+        },
+        {
+            "market_key": "btts",
+            "agreement_tier": "agree2",
+            "prob_band": "92_plus",
+            "n_graded": n,
+            "hits": int(round(0.592 * n)),
+            "hit_rate": 0.592,
+        },
+        {
+            "market_key": "btts",
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": int(round(0.59 * n)),
+            "hit_rate": 0.59,
+        },
+        {
+            "market_key": "goals_2_5",
+            "agreement_tier": "agree2",
+            "prob_band": "92_plus",
+            "n_graded": n,
+            "hits": int(round(0.62 * n)),
+            "hit_rate": 0.62,
+        },
+        {
+            "market_key": "goals_2_5",
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": int(round(0.62 * n)),
+            "hit_rate": 0.62,
+        },
+        {
+            "market_key": "match_1x2",
+            "agreement_tier": "agree2",
+            "prob_band": "lt_75",
+            "n_graded": n,
+            "hits": hits,
+            "hit_rate": rate,
+        },
+        {
+            "market_key": "match_1x2",
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": hits,
+            "hit_rate": rate,
+        },
+        {
+            "market_key": "goals_3_5",
+            "agreement_tier": "agree2",
+            "prob_band": "92_plus",
+            "n_graded": n,
+            "hits": int(round(0.34 * n)),
+            "hit_rate": 0.34,
+        },
+        {
+            "market_key": "goals_3_5",
+            "agreement_tier": "agree2",
+            "prob_band": "all",
+            "n_graded": n,
+            "hits": int(round(0.34 * n)),
+            "hit_rate": 0.34,
+        },
+    ]
+    seen = set()
+    deduped = []
+    for row in rows:
+        key = (row["market_key"], row["agreement_tier"], row["prob_band"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    store_market_calibration(conn, {"calibration": deduped})
+
+
+def _calib_dict(*, rate=0.62, n=400, market="goals_2_5", band="92_plus"):
+    return {
+        (market, "agree2", band): {"hit_rate": rate, "n_graded": n, "hits": int(rate * n)},
+        (market, "agree2", "all"): {"hit_rate": rate, "n_graded": n, "hits": int(rate * n)},
+        (market, "agree1", band): {"hit_rate": 0.48, "n_graded": n, "hits": int(0.48 * n)},
+        (market, "agree1", "all"): {"hit_rate": 0.48, "n_graded": n, "hits": int(0.48 * n)},
+        ("all", "agree2", "all"): {"hit_rate": rate, "n_graded": n, "hits": int(rate * n)},
+        ("all", "agree1", "all"): {"hit_rate": 0.48, "n_graded": n, "hits": int(0.48 * n)},
+        ("all", "all", "all"): {"hit_rate": 0.56, "n_graded": n * 2, "hits": int(0.56 * n * 2)},
+        ("match_1x2", "agree2", "lt_75"): {
+            "hit_rate": rate,
+            "n_graded": n,
+            "hits": int(rate * n),
+        },
+        ("match_1x2", "agree2", "all"): {
+            "hit_rate": rate,
+            "n_graded": n,
+            "hits": int(rate * n),
+        },
+        ("goals_3_5", "agree2", "92_plus"): {
+            "hit_rate": 0.34,
+            "n_graded": n,
+            "hits": int(0.34 * n),
+        },
+        ("goals_3_5", "agree2", "all"): {
+            "hit_rate": 0.34,
+            "n_graded": n,
+            "hits": int(0.34 * n),
+        },
+        ("btts", "agree2", "92_plus"): {
+            "hit_rate": 0.592,
+            "n_graded": n,
+            "hits": int(0.592 * n),
+        },
+        ("btts", "agree2", "all"): {"hit_rate": 0.59, "n_graded": n, "hits": int(0.59 * n)},
+        ("btts", "agree2", "lt_75"): {"hit_rate": 0.59, "n_graded": n, "hits": int(0.59 * n)},
+    }
+
+
 def test_compute_publish_score_not_echo_of_prob():
-    # Fully agreed, coherent, Poisson-backed at 96% must not land near 96.
+    # Fully coherent at base 0.62 → judgment 1.02 → ~63, never 96/100.
     score = compute_publish_score(
-        agreement=3,
+        base_rate=0.62,
         coherence=3,
-        market_trust=3,
         concerns=[],
-        prob=0.96,
     )
-    assert score == 100
+    assert 55 <= score <= 70
     assert score != 96
+    assert score < 95
 
     thin = compute_publish_score(
-        agreement=1,
+        base_rate=0.62,
         coherence=1,
-        market_trust=2,
         concerns=["single source only"],
-        prob=0.96,
     )
-    assert thin < 70
-    assert abs(thin - 96) > 20
+    assert thin < score
 
 
-def test_compute_publish_score_differs_at_same_prob():
-    strong = compute_publish_score(
-        agreement=3, coherence=3, market_trust=3, concerns=[], prob=0.80
-    )
-    weak = compute_publish_score(
-        agreement=1, coherence=1, market_trust=1, concerns=[], prob=0.80
-    )
+def test_compute_publish_score_differs_at_same_base():
+    strong = compute_publish_score(base_rate=0.62, coherence=3, concerns=[])
+    weak = compute_publish_score(base_rate=0.62, coherence=0, concerns=["x", "y"])
     assert strong > weak
-    assert strong - weak >= 20
 
 
 def test_parse_component_response():
@@ -129,9 +304,7 @@ def test_parse_component_response():
                     "fixtureId": 10,
                     "marketKey": "goals_2_5",
                     "verdict": "publish",
-                    "agreement": 3,
                     "coherence": 2,
-                    "marketTrust": 3,
                     "concerns": ["thin book"],
                     "reason": "Aligned over with solid drivers.",
                 }
@@ -144,10 +317,61 @@ def test_parse_component_response():
     assert rows[0]["market_key"] == "goals_2_5"
     assert rows[0]["approve"] is True
     assert rows[0]["score_source"] == "components"
-    assert rows[0]["components"]["agreement"] == 3
     assert rows[0]["components"]["coherence"] == 2
-    assert rows[0]["components"]["market_trust"] == 3
+    assert "agreement" not in rows[0]["components"]
     assert "thin book" in rows[0]["concerns"]
+
+
+def test_single_source_ranks_below_two_source():
+    """Vancouver-style single-source must score below corroborated pick."""
+    calib = _calib_dict()
+    cands = [
+        {
+            "fixture_id": 1,
+            "market_key": "goals_2_5",
+            "prob": 0.95,
+            "agreement_key": "aligned",
+            "agreement_n_sources": 2,
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        },
+        {
+            "fixture_id": 2,
+            "market_key": "goals_2_5",
+            "prob": 0.95,
+            "agreement_key": "aligned",
+            "agreement_n_sources": 1,
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        },
+    ]
+    scores = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "two source",
+                    },
+                    {
+                        "fixtureId": 2,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": ["dg only"],
+                        "reason": "single source",
+                    },
+                ]
+            }
+        )
+    )
+    approved = gate_screen_scores(cands, scores, min_score=40, calibration=calib)
+    by_fid = {p["fixture_id"]: p for p in approved}
+    assert by_fid[1]["ai_score"] > by_fid[2]["ai_score"]
+    assert by_fid[1]["ai_agreement_tier"] == "agree2"
+    assert by_fid[2]["ai_agreement_tier"] == "agree1"
 
 
 def test_fixture_group_payload_shuffles_deterministically():
@@ -181,7 +405,7 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_BATCH_SIZE", 2)
-    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
     config.ensure_dirs()
 
     monkeypatch.setattr(
@@ -194,7 +418,7 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     def fake_chat(system, user):
         calls["n"] += 1
         assert "minScoreHint" not in user
-        assert "Do not return a 0-100 score" in system or "component" in system.lower()
+        assert "0-100" in system or "coherence" in system.lower()
         fids = [1, 2] if calls["n"] == 1 else [3, 4]
         return json.dumps(
             {
@@ -205,7 +429,6 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
-                        "marketTrust": 2,
                         "concerns": [],
                         "reason": "ok",
                     }
@@ -215,6 +438,7 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
         )
 
     conn = init_db(connect(config.DB_PATH))
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
     summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
     assert calls["n"] == 2
     assert summary["n_batches"] == 2
@@ -257,6 +481,7 @@ def test_gate_requires_approve_and_min_score():
             "away_name": "B",
             "date_utc": "2026-08-30T15:00:00+00:00",
             "lean": "Home",
+            "prob": 0.70,
         },
         {
             "fixture_id": 2,
@@ -266,6 +491,7 @@ def test_gate_requires_approve_and_min_score():
             "away_name": "D",
             "date_utc": "2026-08-30T16:00:00+00:00",
             "lean": "Yes",
+            "prob": 0.70,
         },
         {
             "fixture_id": 3,
@@ -275,30 +501,42 @@ def test_gate_requires_approve_and_min_score():
             "away_name": "F",
             "date_utc": "2026-08-30T17:00:00+00:00",
             "lean": "Over",
+            "prob": 0.70,
         },
     ]
     scores = [
-        {"fixture_id": 1, "market_key": "match_1x2", "score": 90, "approve": True, "reason": "ok"},
-        {"fixture_id": 2, "market_key": "btts", "score": 95, "approve": False, "reason": "no"},
-        {"fixture_id": 3, "market_key": "goals_2_5", "score": 60, "approve": True, "reason": "low"},
-        {"fixture_id": 99, "market_key": "match_1x2", "score": 99, "approve": True, "reason": "unknown"},
+        {"fixture_id": 1, "market_key": "match_1x2", "score": 90, "approve": True, "reason": "ok", "score_source": "flat"},
+        {"fixture_id": 2, "market_key": "btts", "score": 95, "approve": False, "reason": "no", "score_source": "flat"},
+        {"fixture_id": 3, "market_key": "goals_2_5", "score": 40, "approve": True, "reason": "low", "score_source": "flat"},
+        {"fixture_id": 99, "market_key": "match_1x2", "score": 99, "approve": True, "reason": "unknown", "score_source": "flat"},
     ]
-    approved = gate_screen_scores(cands, scores, min_score=70)
+    # Ensure candidates map to agree2 so seeded rates apply
+    for c in cands:
+        c["agreement_key"] = "aligned"
+        c["agreement_n_sources"] = 2
+    calib = _calib_dict(rate=0.60, market="match_1x2", band="lt_75")
+    # flat 90 → judgment ~1.03 → 0.60*1.03 ≈ 62; floor 55 passes
+    # flat 40 → judgment 0.93 → 0.60*0.93 ≈ 56 — use min_score=58 to fail
+    approved = gate_screen_scores(cands, scores, min_score=58, calibration=calib)
     assert len(approved) == 1
     assert approved[0]["fixture_id"] == 1
-    assert approved[0]["ai_score"] == 90
+    assert approved[0]["ai_score"] < 90  # remapped, not raw flat
+    assert approved[0]["ai_score_source"] == "flat"
 
 
-def test_gate_components_recompute_with_prob():
+def test_gate_components_recompute_with_base_rate():
     cands = [
         {
             "fixture_id": 1,
             "market_key": "goals_2_5",
             "league": "EPL",
             "prob": 0.96,
+            "agreement_key": "aligned",
+            "agreement_n_sources": 2,
             "date_utc": "2026-08-30T15:00:00+00:00",
         }
     ]
+    calib = _calib_dict(rate=0.62, market="goals_2_5", band="92_plus")
     scores = parse_screen_response(
         json.dumps(
             {
@@ -307,9 +545,7 @@ def test_gate_components_recompute_with_prob():
                         "fixtureId": 1,
                         "marketKey": "goals_2_5",
                         "verdict": "publish",
-                        "agreement": 3,
                         "coherence": 3,
-                        "marketTrust": 3,
                         "concerns": [],
                         "reason": "full stack",
                     }
@@ -317,32 +553,45 @@ def test_gate_components_recompute_with_prob():
             }
         )
     )
-    approved = gate_screen_scores(cands, scores, min_score=70)
+    approved = gate_screen_scores(cands, scores, min_score=55, calibration=calib)
     assert len(approved) == 1
-    assert approved[0]["ai_score"] == 100
+    # 0.62 * 1.02 ≈ 63
+    assert 60 <= approved[0]["ai_score"] <= 66
     assert approved[0]["ai_score_source"] == "components"
     assert approved[0]["ai_score"] != 96
-    # Thin single-source at same prob must not clear the floor.
-    thin_scores = parse_screen_response(
+    assert abs(approved[0]["ai_base_rate"] - 0.62) < 0.03
+    assert approved[0]["ai_agreement_tier"] == "agree2"
+
+    # Low-reliability market falls below floor
+    weak_cands = [
+        {
+            "fixture_id": 1,
+            "market_key": "goals_3_5",
+            "league": "EPL",
+            "prob": 0.93,
+            "agreement_key": "aligned",
+            "agreement_n_sources": 2,
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        }
+    ]
+    weak_scores = parse_screen_response(
         json.dumps(
             {
                 "picks": [
                     {
                         "fixtureId": 1,
-                        "marketKey": "goals_2_5",
+                        "marketKey": "goals_3_5",
                         "verdict": "publish",
-                        "agreement": 1,
-                        "coherence": 1,
-                        "marketTrust": 2,
-                        "concerns": ["dg only"],
-                        "reason": "thin",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "weak market",
                     }
                 ]
             }
         )
     )
-    thin = gate_screen_scores(cands, thin_scores, min_score=70)
-    assert thin == []
+    weak = gate_screen_scores(weak_cands, weak_scores, min_score=55, calibration=calib)
+    assert weak == []
 
 
 def test_gate_one_per_fixture_keeps_higher_score():
@@ -351,23 +600,47 @@ def test_gate_one_per_fixture_keeps_higher_score():
             "fixture_id": 1,
             "market_key": "match_1x2",
             "league": "A",
+            "prob": 0.70,
             "date_utc": "2026-08-30T12:00:00+00:00",
         },
         {
             "fixture_id": 1,
             "market_key": "goals_2_5",
             "league": "A",
+            "prob": 0.93,
             "date_utc": "2026-08-30T12:00:00+00:00",
         },
     ]
-    scores = [
-        {"fixture_id": 1, "market_key": "match_1x2", "score": 72, "approve": True, "reason": "a"},
-        {"fixture_id": 1, "market_key": "goals_2_5", "score": 91, "approve": True, "reason": "b"},
-    ]
-    approved = gate_screen_scores(cands, scores, min_score=70)
+    scores = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "match_1x2",
+                        "verdict": "publish",
+                        "agreement": 2,
+                        "coherence": 2,
+                        "concerns": [],
+                        "reason": "a",
+                    },
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "agreement": 3,
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "b",
+                    },
+                ]
+            }
+        )
+    )
+    calib = _calib_dict()
+    approved = gate_screen_scores(cands, scores, min_score=55, calibration=calib)
     assert len(approved) == 1
     assert approved[0]["market_key"] == "goals_2_5"
-    assert approved[0]["ai_score"] == 91
 
 
 def _seed_fixture(conn, fixture_id: int, *, league_id: int = 39) -> None:
@@ -404,7 +677,7 @@ def test_replace_and_load_ai_picks(tmp_path):
             "away_name": "Swansea",
             "ai_score": 81,
             "ai_reason": "Strong over signal.",
-            "ai_components": {"agreement": 3, "coherence": 2, "market_trust": 3, "concerns": []},
+            "ai_components": {"coherence": 2, "concerns": []},
         }
     ]
     n = replace_ai_picks_for_day(conn, "2026-08-30", approved, model="test-model")
@@ -415,7 +688,8 @@ def test_replace_and_load_ai_picks(tmp_path):
     assert "Strong over" in loaded[0]["ai_reason"]
     assert loaded[0]["home_logo"] == "https://example.com/home.png"
     assert loaded[0]["away_logo"] == "https://example.com/away.png"
-    assert loaded[0]["ai_components"]["agreement"] == 3
+    assert loaded[0]["ai_components"]["coherence"] == 2
+    assert "agreement" not in (loaded[0].get("ai_components") or {})
     conn.close()
 
 
@@ -440,7 +714,7 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
     config.ensure_dirs()
 
     vet_day = {
@@ -467,7 +741,6 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
-                        "marketTrust": 2,
                         "concerns": [],
                         "reason": "Aligned home lean.",
                     }
@@ -477,6 +750,7 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
 
     conn = init_db(connect(config.DB_PATH))
     _seed_fixture(conn, 7)
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
     import dg.ai.vet_strongest as vs
 
     monkeypatch.setattr(
@@ -493,9 +767,9 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     from dg.ai.vet_strongest import load_ai_picks
 
     picks = load_ai_picks(conn, "2026-08-30")
-    # agreement 3 + coherence 3 + trust 2 + strength(0.7→0.5) = 30+30+13.33+10 ≈ 83
-    assert picks[0]["ai_score"] >= 70
-    assert abs(picks[0]["ai_score"] - 70) > 3  # not echoing match-winner %
+    assert picks[0]["ai_score"] >= 55
+    assert picks[0]["ai_score"] < 95
+    assert picks[0]["ai_base_rate"] is not None
     conn.close()
 
 
@@ -506,7 +780,7 @@ def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
     config.ensure_dirs()
 
     monkeypatch.setattr(
@@ -537,9 +811,16 @@ def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
 
     conn = init_db(connect(config.DB_PATH))
     _seed_fixture(conn, 7)
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
     summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
     assert summary["written"] == 1
     assert summary["n_flat_score_fallback"] == 1
+    from dg.ai.vet_strongest import load_ai_picks
+
+    picks = load_ai_picks(conn, "2026-08-30")
+    # Flat 85 remapped through base_rate, not published as 85.
+    assert picks[0]["ai_score"] != 85
+    assert picks[0]["ai_score"] < 80
     conn.close()
 
 
@@ -550,7 +831,7 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
     config.ensure_dirs()
 
     pred = {
@@ -605,7 +886,6 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
-                        "marketTrust": 3,
                         "concerns": [],
                         "reason": "BTTS more coherent.",
                     }
@@ -615,6 +895,7 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
 
     conn = init_db(connect(config.DB_PATH))
     _seed_fixture(conn, 99)
+    _seed_calibration(conn)
     summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
     assert summary["written"] == 1
     from dg.ai.vet_strongest import load_ai_picks

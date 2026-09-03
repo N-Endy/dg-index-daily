@@ -52,19 +52,30 @@ def _fit_platt(probs: List[float], labels: List[int], *, lr: float = 0.05, max_i
 
 def fit_calibration(conn, *, model_version: str) -> Dict[str, Any]:
     """Fit per-outcome Platt scaling from joined predictions and persist."""
+    from dg.report.results_attach import build_result_index, fixture_day
+
     n = labelled_count(conn)
     if n < config.SUPERVISED_MIN_LABELS:
         msg = f"Calibration gated: {n}/{config.SUPERVISED_MIN_LABELS} labelled matches"
         logger.info(msg)
         return {"fitted": False, "n_labels": n, "message": msg}
 
+    result_index = build_result_index(
+        conn.execute(
+            """
+            SELECT home_team_id, away_team_id, date, ftr
+            FROM match_result
+            WHERE ftr IS NOT NULL
+              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+            """
+        ).fetchall()
+    )
+
     rows = conn.execute(
         """
-        SELECT p.probs_json, mr.ftr
+        SELECT p.probs_json, f.home_id, f.away_id, f.date_utc
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id
-        JOIN match_result mr ON mr.home_team_id = f.home_id
-            AND mr.away_team_id = f.away_id AND mr.ftr IS NOT NULL
         WHERE p.probs_json IS NOT NULL
         """
     ).fetchall()
@@ -73,11 +84,22 @@ def fit_calibration(conn, *, model_version: str) -> Dict[str, Any]:
         o: ([], []) for o in _OUTCOMES
     }
     for r in rows:
+        day = fixture_day(r["date_utc"])
+        try:
+            hid = int(r["home_id"]) if r["home_id"] is not None else None
+            aid = int(r["away_id"]) if r["away_id"] is not None else None
+        except (TypeError, ValueError):
+            hid = aid = None
+        if hid is None or aid is None or not day:
+            continue
+        mr = result_index.get((hid, aid, day))
+        if mr is None:
+            continue
         try:
             probs = json.loads(r["probs_json"] or "{}")
         except (json.JSONDecodeError, TypeError):
             continue
-        ftr = (r["ftr"] or "").upper()
+        ftr = (mr["ftr"] or "").upper()
         for outcome in _OUTCOMES:
             p = probs.get(outcome)
             if p is None:

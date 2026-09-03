@@ -267,6 +267,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
             backtest = evaluate_joined(conn)
             stages["backtest_n"] = backtest.get("n", 0)
+            from dg.report.market_reliability import store_market_calibration
+
+            stages["calibration_rows"] = store_market_calibration(conn, backtest)
             train_if_ready(conn)
 
             md = render_report(
@@ -349,6 +352,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     init_db()
     with db_session() as conn:
         summary = evaluate_joined(conn)
+        from dg.report.market_reliability import store_market_calibration
+
+        store_market_calibration(conn, summary)
         print(json.dumps(summary, indent=2))
         return config.EXIT_OK
 
@@ -365,6 +371,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         quality = run_quality_checks(conn, snapshot_id, snap["generated_at"])
         predictions = predict_upcoming(conn, snapshot_id)
         backtest = evaluate_joined(conn)
+        from dg.report.market_reliability import store_market_calibration
+
+        store_market_calibration(conn, backtest)
         md = render_report(
             generated_at=snap["generated_at"],
             snapshot_id=snapshot_id,
@@ -400,6 +409,18 @@ def cmd_selection_audit(args: argparse.Namespace) -> int:
         from dg.report.selection_audit import selection_regret_audit
 
         summary = selection_regret_audit(conn, days=days)
+        print(json.dumps(summary, indent=2))
+        return config.EXIT_OK
+
+
+def cmd_calibration_audit(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    days = int(args.days)
+    with db_session() as conn:
+        from dg.report.calibration_audit import calibration_ranking_audit
+
+        summary = calibration_ranking_audit(conn, days=days)
         print(json.dumps(summary, indent=2))
         return config.EXIT_OK
 
@@ -450,6 +471,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sa.add_argument("--days", type=int, default=30, help="Lookback window in days")
     sa.set_defaults(func=cmd_selection_audit)
+
+    ca = sub.add_parser(
+        "calibration-audit",
+        help="Check Est.% ranking vs actual hit rates by score decile",
+    )
+    ca.add_argument("--days", type=int, default=90, help="Lookback window in days")
+    ca.set_defaults(func=cmd_calibration_audit)
 
     doc = sub.add_parser("doctor", help="Live feed contract checks")
     doc.set_defaults(func=cmd_doctor)

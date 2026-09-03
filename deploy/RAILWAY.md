@@ -39,7 +39,7 @@ FD_SEASON=2627                     # football-data.co.uk season for results back
 API_FOOTBALL_KEY=...               # optional; leftovers only — unset if the account is suspended
 OPENAI_API_KEY=...                 # optional; enables AI Picks (LLM screen of Strongest leans)
 OPENAI_MODEL=gpt-5.6-luna          # optional; default gpt-5.6-luna
-AI_VET_MIN_SCORE=70                # optional; publish-confidence floor for AI Picks
+AI_VET_MIN_SCORE=55                # optional; estimated-hit-chance floor for AI Picks (%)
 SCORE_LINK_SECRET=...              # optional; unlock Flashscore “!” near-miss score confirms
 ```
 
@@ -60,13 +60,16 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AI_VET_TOP_N` | `3` | Gate-passing candidates per fixture sent to LLM |
+| `AI_VET_MIN_SCORE` | `55` | Minimum estimated hit chance (%) to publish |
+| `MARKET_CALIBRATION_SHRINKAGE` | `50` | Empirical-Bayes weight toward parent rates for thin buckets |
+| `MARKET_CALIBRATION_DEFAULT_RATE` | `0.50` | Fallback base rate when no calibration rows exist |
 | `STRONGEST_POISSON_PROB_EPSILON` | `0.03` | Prefer higher prob over Poisson tie-break when gap ≥ this |
 | `STRONGEST_USE_MARKET_HIT_RATES` | `0` | Use backtest hit rates as ranking tie-break |
 | `STRONGEST_MARKET_HIT_MIN_GRADED` | `100` | Min samples per market before hit rate applies |
 
 Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate.
 
-**AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens top-N gate-passing candidates per fixture via an OpenAI-compatible API. The LLM returns component judgments; publish confidence is computed in code and is **not** the model lean percentage. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
+**AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens top-N gate-passing candidates per fixture via an OpenAI-compatible API. The LLM returns coherence/concerns; the published **Est.%** is a measured hit rate keyed by market × source agreement × probability band (with shrinkage), adjusted by that screen — **not** the model lean percentage. Run `dg calibration-audit` to check ranking vs actual hits. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
 
 **Score near-miss (!):** set `SCORE_LINK_SECRET`, then visit `/score-link/unlock?token=YOUR_SECRET` once (HttpOnly cookie, 12h). Awaiting fixtures with soft Flashscore name matches show **!** — confirm a candidate to write **Final**.
 

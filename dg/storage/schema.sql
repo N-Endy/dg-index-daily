@@ -247,3 +247,14 @@ CREATE TABLE IF NOT EXISTS model_calibration (
     n_labels INTEGER NOT NULL,
     UNIQUE (model_version, outcome)
 );
+
+CREATE TABLE IF NOT EXISTS market_calibration (
+    market_key TEXT NOT NULL,
+    agreement_tier TEXT NOT NULL DEFAULT 'all',
+    prob_band TEXT NOT NULL,
+    n_graded INTEGER NOT NULL,
+    hits INTEGER NOT NULL,
+    hit_rate REAL NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (market_key, agreement_tier, prob_band)
+);

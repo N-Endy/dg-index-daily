@@ -101,6 +101,8 @@ def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
     result_index = load_result_index(conn)
     n_graded = 0
     n_hits = 0
+    score_sum = 0.0
+    n_with_score = 0
     by_market: Dict[str, Dict[str, int]] = {}
     by_day: Dict[str, Dict[str, int]] = {}
 
@@ -138,6 +140,12 @@ def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
             continue
 
         n_graded += 1
+        try:
+            sc = float(d.get("score") if d.get("score") is not None else payload.get("ai_score"))
+            score_sum += sc
+            n_with_score += 1
+        except (TypeError, ValueError):
+            pass
         day_key = str(d.get("day") or "")
         if rk == "hit":
             n_hits += 1
@@ -152,6 +160,7 @@ def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
             day_bucket["hits"] += 1
 
     hit_rate = (n_hits / n_graded) if n_graded else None
+    mean_predicted = (score_sum / n_with_score) if n_with_score else None
     by_market_out: Dict[str, Any] = {}
     for mk, stats in by_market.items():
         g = stats["graded"]
@@ -166,9 +175,11 @@ def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
         "n_graded": n_graded,
         "n_hits": n_hits,
         "hit_rate": hit_rate,
+        "mean_predicted": mean_predicted,
         "by_market": by_market_out,
         "by_day": by_day,
         "coverage_note": (
-            "AI Picks graded from stored pick_json against match_result where available."
+            "AI Picks graded from stored pick_json against match_result where available. "
+            "mean_predicted is the average Est.% score among graded picks."
         ),
     }

@@ -176,7 +176,7 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
 # Luna/GPT-5 reasoning can burn completion budget; keep effort low for JSON screens.
 OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low").strip()
-AI_VET_MIN_SCORE = int(os.environ.get("AI_VET_MIN_SCORE", "70"))
+AI_VET_MIN_SCORE = int(os.environ.get("AI_VET_MIN_SCORE", "55"))
 AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "120"))
 AI_VET_MAX_TOKENS = int(os.environ.get("AI_VET_MAX_TOKENS", "16000"))
 AI_VET_BATCH_SIZE = int(os.environ.get("AI_VET_BATCH_SIZE", "20"))
@@ -188,6 +188,10 @@ STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
     "STRONGEST_USE_MARKET_HIT_RATES", "0"
 ).strip().lower() in ("1", "true", "yes")
 STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
+
+# Market calibration for AI publish estimates
+MARKET_CALIBRATION_SHRINKAGE = float(os.environ.get("MARKET_CALIBRATION_SHRINKAGE", "50"))
+MARKET_CALIBRATION_DEFAULT_RATE = float(os.environ.get("MARKET_CALIBRATION_DEFAULT_RATE", "0.50"))
 
 # SQLite (web + batch jobs share one file on Railway volume)
 SQLITE_BUSY_TIMEOUT_SEC = float(os.environ.get("SQLITE_BUSY_TIMEOUT_SEC", "30"))

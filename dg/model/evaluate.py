@@ -156,15 +156,85 @@ def _market_labels(mr: Any, lines: Optional[Dict[str, float]] = None) -> Dict[st
     return labels
 
 
+def _record_1x2_calibration(
+    calibration: Optional[Dict[Tuple[str, str, str], List[int]]],
+    lean: Optional[str],
+    ftr: Optional[str],
+    probs_json: Optional[str],
+    *,
+    home_win_pct: Optional[float] = None,
+    draw_pct: Optional[float] = None,
+    away_win_pct: Optional[float] = None,
+    book_odds: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Record a match_1x2 calibration cell from prediction lean vs result."""
+    if calibration is None:
+        return
+    from dg.features.matchup import book_lean as _book_lean, sim_lean as _sim_lean
+    from dg.report.market_reliability import agreement_tier_from_market, prob_band_for
+
+    if not lean or lean not in ("Home", "Draw", "Away"):
+        return
+    outcome = (ftr or "").upper()
+    if outcome not in ("H", "D", "A"):
+        return
+    hit = {"Home": "H", "Draw": "D", "Away": "A"}[lean] == outcome
+    probs: Dict[str, Any] = {}
+    if probs_json:
+        try:
+            probs = json.loads(probs_json) or {}
+        except (json.JSONDecodeError, TypeError):
+            probs = {}
+    p = probs.get({"Home": "home", "Draw": "draw", "Away": "away"}[lean])
+    try:
+        p = float(p) if p is not None else None
+    except (TypeError, ValueError):
+        p = None
+    band = prob_band_for(p) if p is not None else "no_prob"
+    if not band:
+        band = "no_prob"
+    tier = agreement_tier_from_market(
+        {
+            "lean": lean,
+            "dg_lean": _sim_lean(home_win_pct, draw_pct, away_win_pct),
+            "book_lean": _book_lean(book_odds) if book_odds else None,
+        }
+    )
+    bucket = calibration.setdefault(("match_1x2", tier, band), [0, 0])
+    bucket[1] += 1
+    if hit:
+        bucket[0] += 1
+
+
 def _score_market_row(
     market_metrics: Dict[str, Dict[str, Any]],
     *,
     markets: Dict[str, Any],
     labels: Dict[str, Optional[str]],
     book_odds: Optional[Dict[str, Any]],
+    calibration: Optional[Dict[Tuple[str, str, str], List[int]]] = None,
 ) -> None:
     """Accumulate Brier and hit-rate for each market that has a label and a stored lean."""
+    from dg.report.market_reliability import agreement_tier_from_market, prob_band_for
+
     book_odds = book_odds or {}
+
+    def _record_calibration(market_key: str, m: Dict[str, Any], hit: bool) -> None:
+        if calibration is None:
+            return
+        raw = m.get("prob")
+        try:
+            p = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            p = None
+        band = prob_band_for(p) if p is not None else "no_prob"
+        if not band:
+            band = "no_prob"
+        tier = agreement_tier_from_market(m)
+        bucket = calibration.setdefault((str(market_key), tier, band), [0, 0])
+        bucket[1] += 1
+        if hit:
+            bucket[0] += 1
 
     binary_pos = {
         "goals_2_5": "Over",
@@ -189,7 +259,9 @@ def _score_market_row(
         )
         p = _market_pos_prob(m, pos)
         bucket["rule"].append(_brier_binary(p, label == pos))
-        bucket["rule_hits"].append(1 if label == m.get("lean") else 0)
+        hit = 1 if label == m.get("lean") else 0
+        bucket["rule_hits"].append(hit)
+        _record_calibration(key, m, bool(hit))
 
         if key == "goals_2_5" and book_odds.get("over_2_5") and book_odds.get("under_2_5"):
             try:
@@ -240,7 +312,9 @@ def _score_market_row(
         else:
             rule_p = lean_to_probs(str(fh_m["lean"]), str(fh_m.get("confidence") or "low"))
         bucket["rule"].append(_brier(rule_p, outcome))
-        bucket["rule_hits"].append(1 if fh_label == fh_m.get("lean") else 0)
+        hit = 1 if fh_label == fh_m.get("lean") else 0
+        bucket["rule_hits"].append(hit)
+        _record_calibration("fh_1x2", fh_m, bool(hit))
         if book_odds.get("fh_home_win") and book_odds.get("fh_draw") and book_odds.get("fh_away_win"):
             try:
                 book_p = _devig(
@@ -313,16 +387,27 @@ def evaluate_joined(conn) -> Dict[str, Any]:
     empty) retrospectively score resolved historical match_result rows using
     the latest DG snapshot + rule_v1. Also scores markets_json where labels exist.
     """
+    from dg.report.results_attach import build_result_index, fixture_day
+
+    result_index = build_result_index(
+        conn.execute(
+            """
+            SELECT home_team_id, away_team_id, date, ftr, fthg, ftag, hthg, htag,
+                   hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
+                   closing_home, closing_draw, closing_away
+            FROM match_result
+            WHERE ftr IS NOT NULL
+              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+            """
+        ).fetchall()
+    )
+
     rows = conn.execute(
         """
         SELECT
             p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
             f.home_id, f.away_id, f.date_utc, f.home_name, f.away_name,
-            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json,
-            mr.ftr, mr.fthg, mr.ftag, mr.hthg, mr.htag,
-            mr.hs, mr.as_shots, mr.hst, mr.ast, mr.hc, mr.ac,
-            mr.hy, mr.ay, mr.hr, mr.ar,
-            mr.closing_home, mr.closing_draw, mr.closing_away
+            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id
         LEFT JOIN fixture_projection fp ON fp.id = (
@@ -330,10 +415,6 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             WHERE fixture_id = f.fixture_id
             ORDER BY observed_at DESC LIMIT 1
         )
-        LEFT JOIN match_result mr ON
-            mr.home_team_id = f.home_id AND mr.away_team_id = f.away_id
-            AND mr.ftr IS NOT NULL
-        WHERE mr.ftr IS NOT NULL
         """
     ).fetchall()
 
@@ -343,19 +424,32 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         "dg_sim": {"brier": [], "logloss": []},
     }
     market_metrics: Dict[str, Dict[str, List[float]]] = {}
+    calibration_raw: Dict[Tuple[str, str, str], List[int]] = {}
     n = 0
     mode = "joined_predictions"
 
     for r in rows:
-        outcome = (r["ftr"] or "").upper()
+        day = fixture_day(r["date_utc"])
+        try:
+            hid = int(r["home_id"]) if r["home_id"] is not None else None
+            aid = int(r["away_id"]) if r["away_id"] is not None else None
+        except (TypeError, ValueError):
+            hid = aid = None
+        if hid is None or aid is None or not day:
+            continue
+        mr = result_index.get((hid, aid, day))
+        if mr is None:
+            continue
+
+        outcome = (mr["ftr"] or "").upper()
         if _accumulate_row(
             metrics,
             outcome=outcome,
             lean=r["lean"],
             confidence=r["confidence"],
-            closing_home=r["closing_home"],
-            closing_draw=r["closing_draw"],
-            closing_away=r["closing_away"],
+            closing_home=mr["closing_home"] if "closing_home" in mr.keys() else None,
+            closing_draw=mr["closing_draw"] if "closing_draw" in mr.keys() else None,
+            closing_away=mr["closing_away"] if "closing_away" in mr.keys() else None,
             book_odds_json=r["book_odds_json"],
             home_win_pct=r["home_win_pct"],
             draw_pct=r["draw_pct"],
@@ -364,24 +458,35 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         ):
             n += 1
 
-        markets: Dict[str, Any] = {}
-        if r["markets_json"]:
-            try:
-                markets = json.loads(r["markets_json"]) or {}
-            except (json.JSONDecodeError, TypeError):
-                markets = {}
         book_odds: Dict[str, Any] = {}
         if r["book_odds_json"]:
             try:
                 book_odds = json.loads(r["book_odds_json"]) or {}
             except (json.JSONDecodeError, TypeError):
                 book_odds = {}
+        _record_1x2_calibration(
+            calibration_raw,
+            r["lean"],
+            mr["ftr"],
+            r["probs_json"] if "probs_json" in r.keys() else None,
+            home_win_pct=r["home_win_pct"],
+            draw_pct=r["draw_pct"],
+            away_win_pct=r["away_win_pct"],
+            book_odds=book_odds,
+        )
+        markets: Dict[str, Any] = {}
+        if r["markets_json"]:
+            try:
+                markets = json.loads(r["markets_json"]) or {}
+            except (json.JSONDecodeError, TypeError):
+                markets = {}
         if markets:
             _score_market_row(
                 market_metrics,
                 markets=markets,
-                labels=_market_labels(r, extract_market_lines(markets)),
+                labels=_market_labels(mr, extract_market_lines(markets)),
                 book_odds=book_odds,
+                calibration=calibration_raw,
             )
 
     if n == 0:
@@ -447,12 +552,19 @@ def evaluate_joined(conn) -> Dict[str, Any]:
                 probs_json=probs_json,
             ):
                 n += 1
+            _record_1x2_calibration(
+                calibration_raw,
+                lean,
+                mr["ftr"],
+                probs_json,
+            )
             markets = predict_markets(matchup, goal_probs=goal_probs)
             _score_market_row(
                 market_metrics,
                 markets=markets,
                 labels=_market_labels(mr, extract_market_lines(markets)),
                 book_odds={},
+                calibration=calibration_raw,
             )
 
     if n == 0:
@@ -493,11 +605,16 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         if entry:
             summary["markets"][mkey] = entry
 
+    from dg.report.market_reliability import finalize_calibration_rows
+
+    summary["calibration"] = finalize_calibration_rows(calibration_raw)
+
     logger.info(
-        "Backtest n=%d mode=%s models=%s markets=%s",
+        "Backtest n=%d mode=%s models=%s markets=%s calibration_rows=%d",
         n,
         mode,
         summary["models"],
         {k: {s: v.get("n") for s, v in mv.items()} for k, mv in summary["markets"].items()},
+        len(summary["calibration"]),
     )
     return summary

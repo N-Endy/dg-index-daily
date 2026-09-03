@@ -126,11 +126,12 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 
 ## AI Picks
 
-**AI Picks** takes today’s top gate-passing market candidates per fixture (not only the single Strongest lean) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). The model returns component judgments — agreement, driver coherence, and market trust — plus a publish/skip verdict. A **publish confidence** score (0–100) is computed from those components in code; it is **not** the model lean percentage. Only picks with publish + score at or above the configured floor (default **70**) are published.
+**AI Picks** takes today’s top gate-passing market candidates per fixture (not only the single Strongest lean) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). The model returns a coherence judgment and optional concerns, plus a publish/skip verdict. An **estimated hit chance** (shown as Est. N%) is computed from measured hit rates keyed by **market × source agreement × probability band**, shrunk toward parent aggregates when a bucket is thin, then nudged by the AI screen. It is **not** the model lean percentage (which is often overconfident). Only picks at or above the configured floor (default **55%**) are published.
 
 - The AI may only use the fields we send (probability, confidence, DG/book agreement, drivers). It should **not** invent injuries or lineups.
 - No API key → the page explains setup; the matches job stays green.
 - AI notes are short plain English. The model can be **wrong** — treat this as a stricter filter, not a tip sheet.
+- Each card’s **Basis** line shows the historical hit rate that anchors the estimate (market, agreement tier, and probability band) and the AI screen coherence.
 
 ## How to use this properly
 

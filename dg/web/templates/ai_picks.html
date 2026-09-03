@@ -7,7 +7,7 @@
   <h1>AI Picks</h1>
   <p class="lede">
     Top qualifying market candidates per fixture, chosen by an LLM screen — only published when
-    publish confidence clears the bar. Still exploratory analytics, not betting advice.
+    the estimated hit chance clears the bar. Still exploratory analytics, not betting advice.
   </p>
 </section>
 
@@ -33,7 +33,7 @@
 <div class="strongest-meta">
   <p>
     {{ n_picks }} AI-approved pick{% if n_picks != 1 %}s{% endif %} for {{ day }}
-    (screen score ≥ {{ ai_min_score }}).
+    (estimated chance ≥ {{ ai_min_score }}%).
     <a href="/strongest">Strongest leans</a>
     ·
     <a href="/?date={{ day }}">Full dashboard</a>
@@ -49,7 +49,7 @@
         <span class="league">{{ p.league_display or p.league or "—" }}</span>
         <span class="kickoff">{{ p.kickoff_display }}</span>
         {% if p.ai_score is not none %}
-        <span class="ft-score" title="Publish confidence from the AI screen — not the model lean percentage">Publish conf. {{ p.ai_score }}</span>
+        <span class="ft-score" title="Estimated chance this lean lands, from market history plus the AI screen. Not the model's raw lean percentage.">Est. {{ p.ai_score }}%</span>
         {% endif %}
         {% if p.completed and p.ft_score %}
         <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
@@ -78,9 +78,18 @@
       {% if p.ai_reason %}
       <p class="strength"><strong>AI note:</strong> {{ p.ai_reason }}</p>
       {% endif %}
-      {% if p.ai_components %}
-      <p class="strength" title="Component judgments used to compute publish confidence">
-        Screen: agreement {{ p.ai_components.agreement }}/3 · coherence {{ p.ai_components.coherence }}/3 · market trust {{ p.ai_components.market_trust }}/3
+      {% if p.ai_base_rate is defined or p.ai_components %}
+      <p class="strength" title="Measured market hit rate adjusted by the AI screen">
+        {% if p.ai_base_rate is defined and p.ai_base_rate is not none %}
+        Basis:
+        {% if p.ai_base_market_label %}{{ p.ai_base_market_label }}{% else %}{{ p.market_label or p.market_key }}{% endif %}{% if p.ai_base_tier_label %}, {{ p.ai_base_tier_label }}{% endif %}{% if p.ai_base_band_label and p.ai_base_band != 'all' %}, {{ p.ai_base_band_label }}{% endif %}
+        landed {{ '%.0f'|format(p.ai_base_rate * 100) }}%
+        {% if p.ai_base_n %} ({{ "{:,}".format(p.ai_base_n) }} graded){% endif %}
+        {% if p.ai_components %} · {% endif %}
+        {% endif %}
+        {% if p.ai_components %}
+        screen coherence {{ p.ai_components.coherence }}/3
+        {% endif %}
       </p>
       {% endif %}
 

@@ -84,6 +84,29 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
         """
     )
 
+    # market_calibration is a derived cache. Rebuild when the old 2-column PK is present.
+    cal_cols = {
+        row[1] for row in c.execute("PRAGMA table_info(market_calibration)").fetchall()
+    }
+    if cal_cols and "agreement_tier" not in cal_cols:
+        c.execute("DROP TABLE IF EXISTS market_calibration")
+        cal_cols = set()
+    if not cal_cols:
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_calibration (
+                market_key TEXT NOT NULL,
+                agreement_tier TEXT NOT NULL DEFAULT 'all',
+                prob_band TEXT NOT NULL,
+                n_graded INTEGER NOT NULL,
+                hits INTEGER NOT NULL,
+                hit_rate REAL NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (market_key, agreement_tier, prob_band)
+            )
+            """
+        )
+
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     own = conn is None

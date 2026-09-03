@@ -20,12 +20,13 @@ from dg.report.best_leans import (
 
 logger = logging.getLogger(__name__)
 
-# Publish-confidence weights (sum to 100 before concern penalties).
-WEIGHT_AGREEMENT = 30
-WEIGHT_COHERENCE = 30
-WEIGHT_MARKET_TRUST = 20
-WEIGHT_STRENGTH = 20
-CONCERN_PENALTY = 5
+# Judgment multiplier bounds — coherence/concerns only (agreement is in the base rate).
+JUDGMENT_BASE = 0.90
+JUDGMENT_PER_COHERENCE = 0.04
+JUDGMENT_CONCERN_PENALTY = 0.04
+JUDGMENT_MIN = 0.85
+JUDGMENT_MAX = 1.05
+PUBLISH_CAP = 0.95
 ECHO_DELTA = 3
 
 SYSTEM_PROMPT = (
@@ -35,18 +36,15 @@ SYSTEM_PROMPT = (
     "Pick at most ONE candidate per fixture to publish (or none). "
     "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style). "
     "Do not invent stats, injuries, lineups, or odds. "
-    "Do NOT return a numeric 0-100 score — publish confidence is computed downstream from your "
-    "component judgments. "
+    "Do NOT return a numeric 0-100 score — estimated publish chance is computed downstream from "
+    "measured market hit rates (keyed by source agreement) plus your coherence judgment. "
     "For the chosen candidate set: "
     "verdict='publish' or 'skip'; "
-    "agreement 0-3 (how well DG and book corroborate the lean; both agree independently = 3, "
-    "single source = 1); "
     "coherence 0-3 (do drivers and match style support this market and direction); "
-    "marketTrust 0-3 (goals/BTTS from the goal model rank above heuristic corners/shots/cards); "
-    "concerns as a short string list of red flags (each will reduce the publish score). "
+    "concerns as a short string list of red flags (each will reduce the estimate). "
     "Respond with JSON only: "
     '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","verdict":"publish",'
-    '"agreement":0-3,"coherence":0-3,"marketTrust":0-3,'
+    '"coherence":0-3,'
     '"concerns":["optional flag"],"reason":"one short plain sentence"}]}.'
 )
 
@@ -63,8 +61,71 @@ def _clamp_component(value: Any, *, default: int = 0) -> int:
     return max(0, min(3, n))
 
 
+def _clamp_float(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, float(value)))
+
+
+def judgment_multiplier(
+    *,
+    coherence: int = 0,
+    concerns: Optional[List[str]] = None,
+    flat_score: Optional[int] = None,
+    agreement: int = 0,  # ignored; agreement is in the base rate
+) -> float:
+    """
+    Map AI screen quality to a tight multiplier around the measured base hit rate.
+    Agreement is handled by the calibration tier, not this multiplier.
+    Flat legacy scores (0–100) map onto the same 0.85–1.05 band.
+    """
+    _ = agreement
+    if flat_score is not None:
+        try:
+            s = float(flat_score)
+        except (TypeError, ValueError):
+            s = 0.0
+        s = max(0.0, min(100.0, s))
+        return _clamp_float(
+            JUDGMENT_MIN + (s / 100.0) * (JUDGMENT_MAX - JUDGMENT_MIN),
+            JUDGMENT_MIN,
+            JUDGMENT_MAX,
+        )
+    n_concerns = len(concerns or [])
+    raw = (
+        JUDGMENT_BASE
+        + JUDGMENT_PER_COHERENCE * int(coherence)
+        - JUDGMENT_CONCERN_PENALTY * n_concerns
+    )
+    return _clamp_float(raw, JUDGMENT_MIN, JUDGMENT_MAX)
+
+
+def compute_publish_score(
+    *,
+    base_rate: float,
+    coherence: int = 0,
+    concerns: Optional[List[str]] = None,
+    flat_score: Optional[int] = None,
+    agreement: int = 0,  # ignored
+    market_trust: int = 0,  # ignored
+) -> int:
+    """
+    Estimated chance the lean lands (0–100): measured base_rate × judgment, capped.
+    """
+    _ = market_trust
+    judgment = judgment_multiplier(
+        coherence=coherence,
+        concerns=concerns,
+        flat_score=flat_score,
+        agreement=agreement,
+    )
+    try:
+        rate = float(base_rate)
+    except (TypeError, ValueError):
+        rate = float(config.MARKET_CALIBRATION_DEFAULT_RATE)
+    return max(0, min(100, int(round(100.0 * min(rate * judgment, PUBLISH_CAP)))))
+
+
+# Back-compat alias used by older tests that still call model_strength_band.
 def model_strength_band(prob: Any) -> float:
-    """Map candidate probability to a coarse 0–1 strength contribution."""
     try:
         p = float(prob)
     except (TypeError, ValueError):
@@ -76,29 +137,6 @@ def model_strength_band(prob: Any) -> float:
     if p >= 0.65:
         return 0.5
     return 0.25
-
-
-def compute_publish_score(
-    *,
-    agreement: int,
-    coherence: int,
-    market_trust: int,
-    concerns: List[str],
-    prob: Any = None,
-) -> int:
-    """
-    Compute publish confidence 0–100 from LLM components + capped model strength.
-    Probability contributes at most WEIGHT_STRENGTH points via coarse bands.
-    """
-    strength = model_strength_band(prob)
-    raw = (
-        WEIGHT_AGREEMENT * (agreement / 3.0)
-        + WEIGHT_COHERENCE * (coherence / 3.0)
-        + WEIGHT_MARKET_TRUST * (market_trust / 3.0)
-        + WEIGHT_STRENGTH * strength
-        - CONCERN_PENALTY * len(concerns)
-    )
-    return max(0, min(100, int(round(raw))))
 
 
 def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,8 +242,8 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
     """
     Parse LLM JSON into score rows.
 
-    Preferred shape: component judgments (agreement/coherence/marketTrust) with verdict.
-    Fallback: flat score 0–100 + approve (legacy).
+    Preferred shape: coherence (+ optional legacy agreement) with verdict.
+    Fallback: flat score 0–100 + approve (legacy) — remapped onto judgment later.
     """
     data = _extract_json_object(raw)
     rows = (
@@ -234,15 +272,24 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
         has_components = any(
             k in row
             for k in (
-                "agreement",
-                "Agreement",
                 "coherence",
                 "Coherence",
-                "marketTrust",
-                "market_trust",
-                "MarketTrust",
+                "agreement",
+                "Agreement",
+                "verdict",
+                "Verdict",
             )
         )
+        # Prefer component path when verdict or coherence present; flat score otherwise.
+        has_flat = any(k in row for k in ("score", "Score", "rating"))
+        use_components = has_components and (
+            "coherence" in row
+            or "Coherence" in row
+            or "verdict" in row
+            or "Verdict" in row
+            or not has_flat
+        )
+
         approve_b, _ = _parse_verdict_approve(row)
         concerns = _parse_concerns(row.get("concerns", row.get("Concerns")))
 
@@ -250,33 +297,20 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
         score_source = "flat"
         score_i: Optional[int] = None
 
-        if has_components:
-            agreement = _clamp_component(
-                row.get("agreement", row.get("Agreement")), default=0
-            )
+        if use_components:
             coherence = _clamp_component(
                 row.get("coherence", row.get("Coherence")), default=0
             )
-            market_trust = _clamp_component(
-                row.get(
-                    "marketTrust",
-                    row.get("market_trust", row.get("MarketTrust")),
-                ),
-                default=0,
-            )
+            # Parse agreement if present but do not store — base rate owns agreement.
+            _ = _clamp_component(row.get("agreement", row.get("Agreement")), default=0)
             components = {
-                "agreement": agreement,
                 "coherence": coherence,
-                "market_trust": market_trust,
                 "concerns": concerns,
             }
-            # Score filled in gate once candidate prob is known; placeholder for parse-only.
             score_i = compute_publish_score(
-                agreement=agreement,
+                base_rate=float(config.MARKET_CALIBRATION_DEFAULT_RATE),
                 coherence=coherence,
-                market_trust=market_trust,
                 concerns=concerns,
-                prob=None,
             )
             score_source = "components"
         else:
@@ -306,47 +340,64 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
 def _finalize_score_for_candidate(
     score_row: Dict[str, Any],
     cand: Dict[str, Any],
-) -> Tuple[int, str]:
+    *,
+    calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
+) -> Tuple[int, str, Dict[str, Any]]:
     """
-    Return (final_score, score_source). Recompute from components when present,
-    using the candidate's probability for the capped strength term.
+    Return (final_score, score_source, reliability_meta).
+    Uses measured market hit rate (keyed by agreement tier) × AI judgment.
     """
+    from dg.report.market_reliability import (
+        agreement_tier_from_candidate,
+        reliability_for,
+    )
+
+    tier = agreement_tier_from_candidate(cand)
+    reli = reliability_for(
+        calibration, cand.get("market_key"), tier, cand.get("prob")
+    )
     components = score_row.get("components")
     if isinstance(components, dict) and score_row.get("score_source") == "components":
-        agreement = _clamp_component(components.get("agreement"))
         coherence = _clamp_component(components.get("coherence"))
-        market_trust = _clamp_component(components.get("market_trust"))
         concerns = list(components.get("concerns") or score_row.get("concerns") or [])
         score = compute_publish_score(
-            agreement=agreement,
+            base_rate=float(reli["rate"]),
             coherence=coherence,
-            market_trust=market_trust,
             concerns=concerns,
-            prob=cand.get("prob"),
         )
-        return score, "components"
+        return score, "components", reli
 
-    score = int(score_row.get("score") or 0)
-    score = max(0, min(100, score))
+    flat = int(score_row.get("score") or 0)
+    flat = max(0, min(100, flat))
+    score = compute_publish_score(
+        base_rate=float(reli["rate"]),
+        flat_score=flat,
+    )
     try:
         prob = float(cand.get("prob"))
-        echo = abs(score - int(round(prob * 100)))
+        echo = abs(flat - int(round(prob * 100)))
         logger.warning(
-            "AI vet flat-score fallback fixture=%s market=%s score=%s model_pct=%s echo_delta=%s",
+            "AI vet flat-score fallback fixture=%s market=%s flat=%s model_pct=%s "
+            "echo_delta=%s publish=%s base_rate=%.3f tier=%s",
             cand.get("fixture_id"),
             cand.get("market_key"),
-            score,
+            flat,
             int(round(prob * 100)),
             echo,
+            score,
+            float(reli["rate"]),
+            tier,
         )
     except (TypeError, ValueError):
         logger.warning(
-            "AI vet flat-score fallback fixture=%s market=%s score=%s",
+            "AI vet flat-score fallback fixture=%s market=%s flat=%s publish=%s tier=%s",
             cand.get("fixture_id"),
             cand.get("market_key"),
+            flat,
             score,
+            tier,
         )
-    return score, "flat"
+    return score, "flat", reli
 
 
 def gate_screen_scores(
@@ -354,12 +405,15 @@ def gate_screen_scores(
     scores: List[Dict[str, Any]],
     *,
     min_score: Optional[int] = None,
+    calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Keep approved scores >= min_score that match a known candidate.
     One pick per fixture (highest score wins).
-    Recomputes component scores with candidate probability.
+    Recomputes scores from measured base rate × judgment.
     """
+    from dg.report.market_reliability import agreement_tier_from_candidate
+
     threshold = int(min_score if min_score is not None else config.AI_VET_MIN_SCORE)
     by_key = {
         (int(c["fixture_id"]), str(c.get("market_key") or "")): c
@@ -374,11 +428,19 @@ def gate_screen_scores(
             continue
         if not s.get("approve"):
             continue
-        final_score, score_source = _finalize_score_for_candidate(s, cand)
+        final_score, score_source, reli = _finalize_score_for_candidate(
+            s, cand, calibration=calibration
+        )
         if final_score < threshold:
             continue
         fid = int(s["fixture_id"])
         components = s.get("components") if isinstance(s.get("components"), dict) else None
+        if isinstance(components, dict):
+            components = {
+                "coherence": components.get("coherence"),
+                "concerns": components.get("concerns") or [],
+            }
+        tier = agreement_tier_from_candidate(cand)
         merged = {
             **cand,
             "ai_score": final_score,
@@ -386,6 +448,13 @@ def gate_screen_scores(
             "ai_approve": True,
             "ai_score_source": score_source,
             "ai_components": components,
+            "ai_base_rate": float(reli["rate"]),
+            "ai_base_n": int(reli.get("n") or 0),
+            "ai_base_source": reli.get("source"),
+            "ai_base_band": reli.get("prob_band"),
+            "ai_base_market": reli.get("market_key"),
+            "ai_base_tier": reli.get("agreement_tier") or tier,
+            "ai_agreement_tier": tier,
         }
         prev = best_by_fixture.get(fid)
         if prev is None or final_score > prev[0]:
@@ -548,7 +617,27 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         payload["ai_reason"] = d.get("reason") or payload.get("ai_reason") or ""
         payload["ai_model"] = d.get("model")
         payload["ai_day"] = d.get("day")
-        # ai_components / ai_score_source ride along in pick_json when present.
+        if payload.get("ai_base_rate") is not None:
+            from dg.report.market_reliability import (
+                agreement_tier_label_plain,
+                band_label_plain,
+                market_label_plain,
+            )
+
+            payload["ai_base_market_label"] = market_label_plain(
+                str(payload.get("ai_base_market") or payload.get("market_key") or "")
+            )
+            payload["ai_base_band_label"] = band_label_plain(
+                str(payload.get("ai_base_band") or "")
+            )
+            payload["ai_base_tier_label"] = agreement_tier_label_plain(
+                str(
+                    payload.get("ai_base_tier")
+                    or payload.get("ai_agreement_tier")
+                    or ""
+                )
+            )
+        # ai_components / ai_score_source / ai_base_* ride along in pick_json when present.
         out.append(payload)
     return out
 
@@ -636,6 +725,10 @@ def vet_strongest_for_day(
     summary["n_batches"] = len(batches)
     all_scores: List[Dict[str, Any]] = []
 
+    from dg.report.market_reliability import load_market_calibration
+
+    calibration = load_market_calibration(conn)
+
     try:
         for bi, batch in enumerate(batches, start=1):
             payload = {
@@ -647,8 +740,8 @@ def vet_strongest_for_day(
             user = (
                 f"For each fixture below, pick at most one market candidate to publish "
                 f"for {day_key} (batch {bi}/{len(batches)}). "
-                f"Return component judgments (agreement, coherence, marketTrust, concerns, "
-                f"verdict). Use verdict=skip or omit fixtures you would not publish. "
+                f"Return component judgments (coherence, concerns, verdict). "
+                f"Use verdict=skip or omit fixtures you would not publish. "
                 f"Do not return a 0-100 score. Be selective.\n"
                 f"{json.dumps(payload, ensure_ascii=False)}"
             )
@@ -670,7 +763,9 @@ def vet_strongest_for_day(
             )
             all_scores.extend(batch_scores)
 
-        approved = gate_screen_scores(candidates, all_scores)
+        approved = gate_screen_scores(
+            candidates, all_scores, calibration=calibration
+        )
         if not approved and all_scores:
             logger.warning("AI vet: LLM returned scores but none passed gate — no fallback")
         written = replace_ai_picks_for_day(conn, day_key, approved, model=model)
