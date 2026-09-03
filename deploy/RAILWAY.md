@@ -67,6 +67,11 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | `MARKET_PROB_CALIBRATION_MIN_FIT` | `80` | Min samples before logit Platt is used (else shrink to base rate) |
 | `MARKET_PROB_CALIBRATION_MIN_WEEKS` | `4` | Min distinct matchweeks before logit Platt is used |
 | `STRONGEST_MIN_PROB` | `0.65` | Hard probability floor for a Strongest lean |
+| `STRONGEST_MIN_PROB_FH_OVER_0_5` | `0.80` | Higher floor for FH Over 0.5 (easy base-rate market) |
+| `SCORING_ENV_RECENT_DAYS` | `14` | Window for recent goals-per-match |
+| `SCORING_ENV_BASELINE_DAYS` | `90` | Baseline GPM window |
+| `SCORING_ENV_STRETCH_RATIO` | `1.12` | Hot if recent/baseline ≥ this |
+| `SCORING_ENV_OVER_PROB_BUMP` | `0.05` | Extra Strongest min-prob for Overs when hot |
 | `STRONGEST_MIN_AUC` | `0.55` | Exclude a market from Strongest only when its AUC upper bound is below this |
 | `STRONGEST_AUC_MIN_LABELS` | `300` | Min graded samples before the AUC gate may exclude a market |
 | `STRONGEST_AUC_MIN_WEEKS` | `8` | Min distinct matchweeks before the AUC gate may exclude a market |

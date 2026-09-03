@@ -478,3 +478,72 @@ def test_candidate_carries_prob_raw():
     assert pick is not None
     assert pick["prob"] == 0.66
     assert pick["prob_raw"] == 0.91
+
+
+def test_fh_over_0_5_requires_higher_min_prob(monkeypatch):
+    """Average FH Over (~0.70) must fail; clear edges (~0.82) still pass."""
+    monkeypatch.setattr(config, "STRONGEST_MIN_PROB", 0.65)
+    monkeypatch.setattr(config, "STRONGEST_MIN_PROB_FH_OVER_0_5", 0.80)
+    monkeypatch.setattr(
+        config,
+        "STRONGEST_MIN_PROB_BY_MARKET",
+        {"fh_over_0_5": 0.80},
+    )
+
+    low = _base_pred(
+        markets={
+            "fh_over_0_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.70,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    assert select_strongest_lean(low) is None
+    assert collect_gate_passing_candidates(low) == []
+
+    high = _base_pred(
+        markets={
+            "fh_over_0_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.82,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    pick = select_strongest_lean(high)
+    assert pick is not None
+    assert pick["market_key"] == "fh_over_0_5"
+    assert pick["prob"] == 0.82
+
+
+def test_other_markets_keep_global_min_prob(monkeypatch):
+    """goals_2_5 at 0.70 still clears the global 0.65 floor."""
+    monkeypatch.setattr(config, "STRONGEST_MIN_PROB", 0.65)
+    monkeypatch.setattr(
+        config,
+        "STRONGEST_MIN_PROB_BY_MARKET",
+        {"fh_over_0_5": 0.80},
+    )
+    pred = _base_pred(
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.70,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    pick = select_strongest_lean(pred)
+    assert pick is not None
+    assert pick["market_key"] == "goals_2_5"
+    assert pick["prob"] == 0.70

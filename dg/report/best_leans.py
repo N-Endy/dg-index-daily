@@ -119,12 +119,19 @@ def _passes_hard_gates(
     prob: Optional[float],
     dg_lean: Any,
     book_lean: Any,
+    market_key: Optional[str] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> bool:
     if not lean:
         return False
     if (confidence or "").lower() != REQUIRED_CONF:
         return False
-    if prob is None or prob < MIN_PROB:
+    from dg.report.scoring_env import over_market_prob_bump
+
+    floor = float(config.strongest_min_prob(market_key)) + over_market_prob_bump(
+        market_key, lean, scoring_env
+    )
+    if prob is None or prob < floor:
         return False
     if not _agreement_gate(lean, dg_lean, book_lean):
         return False
@@ -233,6 +240,7 @@ def _candidate_from_market(
     m: Dict[str, Any],
     *,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     lean = m.get("lean")
     conf = m.get("confidence")
@@ -245,6 +253,8 @@ def _candidate_from_market(
         prob=prob,
         dg_lean=dg_lean,
         book_lean=book_lean,
+        market_key=key,
+        scoring_env=scoring_env,
     ):
         return None
     if not _auc_ok(key, market_aucs):
@@ -290,6 +300,7 @@ def _candidate_1x2(
     probs: Dict[str, Any],
     *,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     lean = pred.get("lean")
     conf = pred.get("confidence")
@@ -302,6 +313,8 @@ def _candidate_1x2(
         prob=prob,
         dg_lean=dg_lean,
         book_lean=book_lean,
+        market_key="match_1x2",
+        scoring_env=scoring_env,
     ):
         return None
     if not _auc_ok("match_1x2", market_aucs):
@@ -346,19 +359,24 @@ def collect_gate_passing_candidates(
     pred: Dict[str, Any],
     *,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """All markets + 1X2 that clear the Strongest hard gates for a fixture."""
     markets = _markets_dict(pred)
     probs = _probs_dict(pred)
     candidates: List[Dict[str, Any]] = []
-    one_x2 = _candidate_1x2(pred, probs, market_aucs=market_aucs)
+    one_x2 = _candidate_1x2(
+        pred, probs, market_aucs=market_aucs, scoring_env=scoring_env
+    )
     if one_x2:
         candidates.append(one_x2)
     for key in MARKET_ORDER:
         m = markets.get(key)
         if not isinstance(m, dict):
             continue
-        cand = _candidate_from_market(key, m, market_aucs=market_aucs)
+        cand = _candidate_from_market(
+            key, m, market_aucs=market_aucs, scoring_env=scoring_env
+        )
         if cand:
             candidates.append(cand)
     return candidates
@@ -456,9 +474,12 @@ def select_top_n_candidates(
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Return up to n gate-passing candidates for a fixture, best first."""
-    raw = collect_gate_passing_candidates(pred, market_aucs=market_aucs)
+    raw = collect_gate_passing_candidates(
+        pred, market_aucs=market_aucs, scoring_env=scoring_env
+    )
     if not raw:
         return []
     ranked = _sort_candidates(raw, market_hit_rates=market_hit_rates)
@@ -471,13 +492,18 @@ def select_strongest_lean(
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Pick at most one conservative lean for a fixture from all markets + 1X2.
     Returns None when nothing clears the high bar.
     """
     picks = select_top_n_candidates(
-        pred, 1, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+        pred,
+        1,
+        market_hit_rates=market_hit_rates,
+        market_aucs=market_aucs,
+        scoring_env=scoring_env,
     )
     if not picks:
         return None
@@ -490,12 +516,16 @@ def build_strongest_picks(
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Select and rank strongest leans across fixtures (strongest first)."""
     picks: List[Dict[str, Any]] = []
     for pred in predictions:
         pick = select_strongest_lean(
-            pred, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+            pred,
+            market_hit_rates=market_hit_rates,
+            market_aucs=market_aucs,
+            scoring_env=scoring_env,
         )
         if pick:
             picks.append(pick)
@@ -511,6 +541,7 @@ def build_ai_vet_fixture_groups(
     top_n: Optional[int] = None,
     market_hit_rates: Optional[Dict[str, float]] = None,
     market_aucs: Optional[Dict[str, Any]] = None,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Group top-N gate-passing candidates per fixture for LLM market selection.
@@ -520,7 +551,11 @@ def build_ai_vet_fixture_groups(
     groups: List[Dict[str, Any]] = []
     for pred in predictions:
         cands = select_top_n_candidates(
-            pred, n, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+            pred,
+            n,
+            market_hit_rates=market_hit_rates,
+            market_aucs=market_aucs,
+            scoring_env=scoring_env,
         )
         if not cands:
             continue
@@ -540,7 +575,6 @@ def build_ai_vet_fixture_groups(
         )
     return groups
 
-
 def flatten_vet_groups(groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Flatten fixture groups into a candidate list for gate_screen_scores."""
     out: List[Dict[str, Any]] = []
@@ -553,6 +587,7 @@ def flatten_vet_groups(groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
     """Load today's (or given WAT date) dashboard rows and attach strongest picks."""
     from dg.report.scoreboard import recent_strongest_performance
+    from dg.report.scoring_env import load_scoring_environment
     from dg.report.selection_audit import selection_regret_audit
 
     day = date or today_wat()
@@ -561,6 +596,7 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
     try:
         scoreboard = recent_strongest_performance(conn)
         selection_audit = selection_regret_audit(conn)
+        scoring_env = load_scoring_environment(conn)
         market_hit_rates = None
         market_aucs = get_market_aucs(conn)
         if config.STRONGEST_USE_MARKET_HIT_RATES:
@@ -569,7 +605,10 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
         conn.close()
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
     picks = build_strongest_picks(
-        enriched, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+        enriched,
+        market_hit_rates=market_hit_rates,
+        market_aucs=market_aucs,
+        scoring_env=scoring_env,
     )
     picks.sort(key=_fixture_sort_key)
     return {
@@ -581,4 +620,5 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
         "n_picks": len(picks),
         "scoreboard": scoreboard,
         "selection_audit": selection_audit,
+        "scoring_env": scoring_env,
     }

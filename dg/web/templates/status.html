@@ -31,6 +31,12 @@
 </div>
 {% endif %}
 
+{% if scoring_env and scoring_env.caution %}
+<div class="banner banner-warn" role="status">
+  {{ scoring_env.caution }}
+</div>
+{% endif %}
+
 <section class="status-grid">
   <article class="status-card">
     <h2>Latest snapshot</h2>
@@ -68,6 +74,25 @@
     {% endif %}
     {% else %}
     <p class="muted">No run_log entries yet.</p>
+    {% endif %}
+  </article>
+
+  <article class="status-card">
+    <h2>Scoring environment</h2>
+    {% if scoring_env and scoring_env.powered %}
+    <dl>
+      <div><dt>Recent GPM ({{ scoring_env.recent_days }}d)</dt><dd>{% if scoring_env.gpm_recent is not none %}{{ '%.2f'|format(scoring_env.gpm_recent) }}{% else %}—{% endif %} (n={{ scoring_env.n_recent }})</dd></div>
+      <div><dt>Baseline GPM ({{ scoring_env.baseline_days }}d)</dt><dd>{% if scoring_env.gpm_baseline is not none %}{{ '%.2f'|format(scoring_env.gpm_baseline) }}{% else %}—{% endif %} (n={{ scoring_env.n_baseline }})</dd></div>
+      <div><dt>Stretch</dt><dd>{% if scoring_env.stretch is not none %}{{ '%.2f'|format(scoring_env.stretch) }}×{% else %}—{% endif %}{% if scoring_env.delta is not none %} ({{ '%+.2f'|format(scoring_env.delta) }}){% endif %}</dd></div>
+      <div><dt>Hot window</dt><dd>{{ 'yes' if scoring_env.stretched else 'no' }}</dd></div>
+    </dl>
+    {% if scoring_env.caution %}
+    <p class="muted">{{ scoring_env.caution }}</p>
+    {% else %}
+    <p class="muted">Recent scoring is not stretched vs baseline — Over gates use normal floors.</p>
+    {% endif %}
+    {% else %}
+    <p class="muted">Not enough finished results yet to judge scoring pace (need ≥ {{ scoring_env.min_matches if scoring_env else 30 }} matches in each window).</p>
     {% endif %}
   </article>
 

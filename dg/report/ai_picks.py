@@ -25,9 +25,11 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
     try:
         picks = load_ai_picks(conn, day_key)
         from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
+        from dg.report.scoring_env import load_scoring_environment
 
         ai_scoreboard = recent_ai_performance(conn)
         strongest_scoreboard = recent_strongest_performance(conn)
+        scoring_env = load_scoring_environment(conn)
     finally:
         conn.close()
 
@@ -68,4 +70,5 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
         "message": message,
         "ai_scoreboard": ai_scoreboard,
         "strongest_scoreboard": strongest_scoreboard,
+        "scoring_env": scoring_env,
     }

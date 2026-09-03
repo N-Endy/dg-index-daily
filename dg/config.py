@@ -194,9 +194,33 @@ STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
 ).strip().lower() in ("1", "true", "yes")
 STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
 STRONGEST_MIN_PROB = float(os.environ.get("STRONGEST_MIN_PROB", "0.65"))
+# Easy high-base-rate markets need a higher floor so average games don't clear Strongest.
+STRONGEST_MIN_PROB_FH_OVER_0_5 = float(
+    os.environ.get("STRONGEST_MIN_PROB_FH_OVER_0_5", "0.80")
+)
+STRONGEST_MIN_PROB_BY_MARKET = {
+    "fh_over_0_5": STRONGEST_MIN_PROB_FH_OVER_0_5,
+}
 STRONGEST_MIN_AUC = float(os.environ.get("STRONGEST_MIN_AUC", "0.55"))
 STRONGEST_AUC_MIN_LABELS = int(os.environ.get("STRONGEST_AUC_MIN_LABELS", "300"))
 STRONGEST_AUC_MIN_WEEKS = int(os.environ.get("STRONGEST_AUC_MIN_WEEKS", "8"))
+
+
+def strongest_min_prob(market_key: str | None = None) -> float:
+    """Per-market Strongest probability floor; falls back to STRONGEST_MIN_PROB."""
+    key = str(market_key or "")
+    if key in STRONGEST_MIN_PROB_BY_MARKET:
+        return float(STRONGEST_MIN_PROB_BY_MARKET[key])
+    return float(STRONGEST_MIN_PROB)
+
+
+# Scoring environment (recent GPM vs baseline) — mean-reversion caution for Overs
+SCORING_ENV_RECENT_DAYS = int(os.environ.get("SCORING_ENV_RECENT_DAYS", "14"))
+SCORING_ENV_BASELINE_DAYS = int(os.environ.get("SCORING_ENV_BASELINE_DAYS", "90"))
+SCORING_ENV_MIN_MATCHES = int(os.environ.get("SCORING_ENV_MIN_MATCHES", "30"))
+SCORING_ENV_STRETCH_RATIO = float(os.environ.get("SCORING_ENV_STRETCH_RATIO", "1.12"))
+SCORING_ENV_STRETCH_DELTA = float(os.environ.get("SCORING_ENV_STRETCH_DELTA", "0.35"))
+SCORING_ENV_OVER_PROB_BUMP = float(os.environ.get("SCORING_ENV_OVER_PROB_BUMP", "0.05"))
 
 # Market calibration for AI publish estimates
 MARKET_CALIBRATION_SHRINKAGE = float(os.environ.get("MARKET_CALIBRATION_SHRINKAGE", "50"))

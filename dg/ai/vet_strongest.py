@@ -655,6 +655,7 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
     ctx = load_strongest_day(date=day_key)
     market_hit_rates = None
     market_aucs: Optional[Dict[str, Any]] = None
+    scoring_env = ctx.get("scoring_env")
     from dg.report.loaders import get_connection
 
     conn = get_connection()
@@ -668,6 +669,7 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
         market_aucs=market_aucs,
+        scoring_env=scoring_env,
     )
     ctx["vet_groups"] = groups
     ctx["vet_candidates"] = flatten_vet_groups(groups)
@@ -675,6 +677,7 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
         market_aucs=market_aucs,
+        scoring_env=scoring_env,
     )
     return ctx
 

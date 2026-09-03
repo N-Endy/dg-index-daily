@@ -19,6 +19,13 @@
 </div>
 {% endif %}
 
+{% if scoring_env and scoring_env.caution %}
+<div class="banner banner-warn" role="status">
+  {{ scoring_env.caution }}
+  Over markets need a higher probability bar while this lasts.
+</div>
+{% endif %}
+
 {% if empty %}
 <div class="banner banner-info" role="status">
   {{ message or "No data yet." }} Run the daily job once, or wait for the Railway cron.

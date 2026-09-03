@@ -58,10 +58,12 @@ def load_status_context() -> Dict[str, Any]:
 
         from dg.report.selection_audit import selection_regret_audit
         from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
+        from dg.report.scoring_env import load_scoring_environment
 
         selection_audit = selection_regret_audit(conn)
         strongest_scoreboard = recent_strongest_performance(conn)
         ai_scoreboard = recent_ai_performance(conn)
+        scoring_env = load_scoring_environment(conn)
 
         n_fixtures = conn.execute("SELECT COUNT(*) AS n FROM fixture").fetchone()
         n_predictions = conn.execute("SELECT COUNT(*) AS n FROM prediction").fetchone()
@@ -81,6 +83,7 @@ def load_status_context() -> Dict[str, Any]:
             "selection_audit": selection_audit,
             "strongest_scoreboard": strongest_scoreboard,
             "ai_scoreboard": ai_scoreboard,
+            "scoring_env": scoring_env,
             "n_fixtures": int(n_fixtures["n"]) if n_fixtures else 0,
             "n_predictions": int(n_predictions["n"]) if n_predictions else 0,
             "today_wat": day,
