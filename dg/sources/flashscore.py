@@ -32,6 +32,8 @@ _STAT_LINE_RE = re.compile(
     + "|".join(re.escape(label) for label in _STATS_LABELS)
     + r")\s+(\d+)$"
 )
+# Encoded feed inside window.environment: SG÷Total shots¬SH÷12¬SI÷32
+_FEED_STAT_RE = re.compile(r"SG÷([^¬]+)¬SH÷(\d+)¬SI÷(\d+)")
 _BLOCK_TAGS = frozenset({"div", "tr", "p", "br", "li", "table", "section", "h3", "h4"})
 
 # Module-level cooldown after Cloudflare / repeated failures (MatchPredictor health tracker)
@@ -257,12 +259,36 @@ class _MatchStatsTextParser(HTMLParser):
             self.parts.append(data)
 
 
+def _apply_stat_pair(out: Dict[str, int], label: str, home_v: int, away_v: int) -> None:
+    keys = _STATS_LABELS.get(label)
+    if not keys:
+        return
+    out[keys[0]] = home_v
+    out[keys[1]] = away_v
+
+
+def _parse_stats_feed(raw_html: str) -> Dict[str, int]:
+    """Parse SG÷Label¬SH÷home¬SI÷away tokens embedded in page scripts."""
+    out: Dict[str, int] = {}
+    for m in _FEED_STAT_RE.finditer(raw_html or ""):
+        label = (m.group(1) or "").strip()
+        try:
+            home_v = int(m.group(2))
+            away_v = int(m.group(3))
+        except (TypeError, ValueError):
+            continue
+        _apply_stat_pair(out, label, home_v, away_v)
+    return out
+
+
 def parse_match_stats_html(raw_html: str) -> Dict[str, int]:
     """
     Extract integer home/away stat pairs from a flashscore.mobi ?t=stats page.
 
-    Matches lines like ``21 Total shots 10`` after whitespace normalization.
-    Percentage / xG rows fail the integer pattern and are ignored.
+    Supports:
+    - flat lines like ``21 Total shots 10`` (legacy)
+    - WCL three-line rows: home value / label / away value
+    - SG÷…¬SH÷…¬SI÷… feed tokens when text scanning finds nothing
     """
     if not raw_html or not raw_html.strip():
         return {}
@@ -270,20 +296,26 @@ def parse_match_stats_html(raw_html: str) -> Dict[str, int]:
     parser.feed(raw_html)
     parser.close()
     text = re.sub(r"[ \t]+", " ", "".join(parser.parts))
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     out: Dict[str, int] = {}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
+
+    for line in lines:
         m = _STAT_LINE_RE.match(line)
         if not m:
             continue
-        home_v, label, away_v = int(m.group(1)), m.group(2), int(m.group(3))
-        keys = _STATS_LABELS.get(label)
-        if not keys:
+        _apply_stat_pair(out, m.group(2), int(m.group(1)), int(m.group(3)))
+
+    i = 0
+    while i < len(lines) - 2:
+        home_s, label, away_s = lines[i], lines[i + 1], lines[i + 2]
+        if home_s.isdigit() and away_s.isdigit() and label in _STATS_LABELS:
+            _apply_stat_pair(out, label, int(home_s), int(away_s))
+            i += 3
             continue
-        out[keys[0]] = home_v
-        out[keys[1]] = away_v
+        i += 1
+
+    if not out:
+        out = _parse_stats_feed(raw_html)
     return out
 
 

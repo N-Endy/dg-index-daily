@@ -117,6 +117,14 @@ python -m dg.cli sync-scores
 python -m dg.cli sync-match-stats
 ```
 
+After a deploy that touches Flashscore stats parsing, confirm heuristic markets grade:
+
+```
+python -m dg.cli sync-match-stats   # expect fetched/written > 0 (not all "stats empty")
+python -m dg.cli backtest
+python -m dg.cli market-audit       # expect corners/shots/SOT/cards; n_markets toward 10
+```
+
 Manual `sync-scores` is safe while the site is live (SQLite WAL). If you see `database is locked`, retry once — you do not need to stop uvicorn.
 
 Or the wrappers:

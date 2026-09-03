@@ -31,6 +31,47 @@ COPENHAGEN_STATS_HTML = """
 </body></html>
 """
 
+WCL_STATS_HTML = """
+<html><body>
+<div class="statisticsMobi">
+  <div class="homeValue"><span>12</span></div>
+  <div class="category"><span>Total shots</span></div>
+  <div class="awayValue"><span>32</span></div>
+</div>
+<div class="statisticsMobi">
+  <div class="homeValue"><span>4</span></div>
+  <div class="category"><span>Shots on target</span></div>
+  <div class="awayValue"><span>11</span></div>
+</div>
+<div class="statisticsMobi">
+  <div class="homeValue"><span>5</span></div>
+  <div class="category"><span>Corner kicks</span></div>
+  <div class="awayValue"><span>3</span></div>
+</div>
+<div class="statisticsMobi">
+  <div class="homeValue"><span>1</span></div>
+  <div class="category"><span>Yellow cards</span></div>
+  <div class="awayValue"><span>2</span></div>
+</div>
+<div class="statisticsMobi">
+  <div class="homeValue"><span>0</span></div>
+  <div class="category"><span>Red cards</span></div>
+  <div class="awayValue"><span>1</span></div>
+</div>
+</body></html>
+"""
+
+FEED_STATS_HTML = """
+<html><body>
+<script>
+window.environment = {
+  stats: "SG÷Total shots¬SH÷21¬SI÷10¬SG÷Shots on target¬SH÷7¬SI÷1¬"
+    + "SG÷Corner kicks¬SH÷2¬SI÷0¬SG÷Yellow cards¬SH÷3¬SI÷2¬"
+};
+</script>
+</body></html>
+"""
+
 
 def test_parse_score_data_html_finished_and_skips_sched():
     rows = parse_score_data_html(SAMPLE_HTML, finished_only=True)
@@ -84,6 +125,27 @@ def test_parse_match_stats_html_copenhagen():
     assert "hr" not in stats and "ar" not in stats
     # Must not confuse xGOT / possession / passes with shots
     assert stats["hst"] == 7
+
+
+def test_parse_match_stats_html_wcl_rows():
+    from dg.sources.flashscore import parse_match_stats_html
+
+    stats = parse_match_stats_html(WCL_STATS_HTML)
+    assert stats["hs"] == 12 and stats["as_shots"] == 32
+    assert stats["hst"] == 4 and stats["ast"] == 11
+    assert stats["hc"] == 5 and stats["ac"] == 3
+    assert stats["hy"] == 1 and stats["ay"] == 2
+    assert stats["hr"] == 0 and stats["ar"] == 1
+
+
+def test_parse_match_stats_html_feed_fallback():
+    from dg.sources.flashscore import parse_match_stats_html
+
+    stats = parse_match_stats_html(FEED_STATS_HTML)
+    assert stats["hs"] == 21 and stats["as_shots"] == 10
+    assert stats["hst"] == 7 and stats["ast"] == 1
+    assert stats["hc"] == 2 and stats["ac"] == 0
+    assert stats["hy"] == 3 and stats["ay"] == 2
 
 
 def test_teams_match_fuzzy():
