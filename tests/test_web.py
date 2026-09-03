@@ -192,7 +192,7 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     r = web_client.get("/ai-picks")
     assert r.status_code == 200
     assert "Alpha" in r.text and "Beta" in r.text
-    assert "AI 88" in r.text
+    assert "Publish conf. 88" in r.text
     assert "Clear home edge" in r.text
     if home_logo:
         assert "team-logo" in r.text

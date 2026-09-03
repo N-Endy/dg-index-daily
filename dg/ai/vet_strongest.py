@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,23 +20,85 @@ from dg.report.best_leans import (
 
 logger = logging.getLogger(__name__)
 
+# Publish-confidence weights (sum to 100 before concern penalties).
+WEIGHT_AGREEMENT = 30
+WEIGHT_COHERENCE = 30
+WEIGHT_MARKET_TRUST = 20
+WEIGHT_STRENGTH = 20
+CONCERN_PENALTY = 5
+ECHO_DELTA = 3
+
 SYSTEM_PROMPT = (
     "You are a conservative football analyst reviewing pre-filtered directional leans "
     "from a rule-based ratings model (DataGaffer DG Index). "
     "For each fixture you may see multiple market candidates that already passed hard gates. "
     "Pick at most ONE candidate per fixture to publish (or none). "
-    "Choose the market whose lean is most coherent given ONLY the provided fields "
-    "(probability, confidence, DG/book agreement, drivers). "
+    "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style). "
     "Do not invent stats, injuries, lineups, or odds. "
-    "Set approve=true only when you would stand behind publishing that lean; be selective. "
+    "Do NOT return a numeric 0-100 score — publish confidence is computed downstream from your "
+    "component judgments. "
+    "For the chosen candidate set: "
+    "verdict='publish' or 'skip'; "
+    "agreement 0-3 (how well DG and book corroborate the lean; both agree independently = 3, "
+    "single source = 1); "
+    "coherence 0-3 (do drivers and match style support this market and direction); "
+    "marketTrust 0-3 (goals/BTTS from the goal model rank above heuristic corners/shots/cards); "
+    "concerns as a short string list of red flags (each will reduce the publish score). "
     "Respond with JSON only: "
-    '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","score":0-100,'
-    '"approve":true,"reason":"one short plain sentence"}]}.'
+    '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","verdict":"publish",'
+    '"agreement":0-3,"coherence":0-3,"marketTrust":0-3,'
+    '"concerns":["optional flag"],"reason":"one short plain sentence"}]}.'
 )
 
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _clamp_component(value: Any, *, default: int = 0) -> int:
+    try:
+        n = int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+    return max(0, min(3, n))
+
+
+def model_strength_band(prob: Any) -> float:
+    """Map candidate probability to a coarse 0–1 strength contribution."""
+    try:
+        p = float(prob)
+    except (TypeError, ValueError):
+        return 0.5
+    if p >= 0.85:
+        return 1.0
+    if p >= 0.75:
+        return 0.75
+    if p >= 0.65:
+        return 0.5
+    return 0.25
+
+
+def compute_publish_score(
+    *,
+    agreement: int,
+    coherence: int,
+    market_trust: int,
+    concerns: List[str],
+    prob: Any = None,
+) -> int:
+    """
+    Compute publish confidence 0–100 from LLM components + capped model strength.
+    Probability contributes at most WEIGHT_STRENGTH points via coarse bands.
+    """
+    strength = model_strength_band(prob)
+    raw = (
+        WEIGHT_AGREEMENT * (agreement / 3.0)
+        + WEIGHT_COHERENCE * (coherence / 3.0)
+        + WEIGHT_MARKET_TRUST * (market_trust / 3.0)
+        + WEIGHT_STRENGTH * strength
+        - CONCERN_PENALTY * len(concerns)
+    )
+    return max(0, min(100, int(round(raw))))
 
 
 def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
@@ -63,13 +126,23 @@ def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
+    """Build fixture JSON; shuffle candidates with a fixture-seeded RNG."""
+    candidates = list(group.get("candidates") or [])
+    fid = group.get("fixture_id")
+    try:
+        seed = int(fid) if fid is not None else 0
+    except (TypeError, ValueError):
+        seed = 0
+    rng = random.Random(seed)
+    shuffled = list(candidates)
+    rng.shuffle(shuffled)
     return {
         "fixtureId": group.get("fixture_id"),
         "homeTeam": group.get("home_name"),
         "awayTeam": group.get("away_name"),
         "league": group.get("league_display") or group.get("league"),
         "kickoff": group.get("kickoff_display") or group.get("date_utc"),
-        "candidates": [candidate_payload(c) for c in (group.get("candidates") or [])],
+        "candidates": [candidate_payload(c) for c in shuffled],
     }
 
 
@@ -93,8 +166,47 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
         return {}
 
 
+def _parse_concerns(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        return [text] if text else []
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            out.append(text[:120])
+    return out[:8]
+
+
+def _parse_verdict_approve(row: Dict[str, Any]) -> Tuple[bool, bool]:
+    """
+    Return (approve, used_flat_score_path hint for score).
+    Component path uses verdict; flat path uses approve.
+    """
+    verdict = row.get("verdict", row.get("Verdict"))
+    if verdict is not None:
+        if isinstance(verdict, str):
+            return verdict.strip().lower() in ("publish", "approve", "approved", "yes"), False
+        return bool(verdict), False
+    approve = row.get("approve", row.get("Approve", row.get("passed")))
+    if isinstance(approve, str):
+        return approve.strip().lower() in ("1", "true", "yes", "y"), True
+    if approve is None:
+        return False, True
+    return bool(approve), True
+
+
 def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
-    """Parse LLM JSON into a list of score rows (resilient to key casing)."""
+    """
+    Parse LLM JSON into score rows.
+
+    Preferred shape: component judgments (agreement/coherence/marketTrust) with verdict.
+    Fallback: flat score 0–100 + approve (legacy).
+    """
     data = _extract_json_object(raw)
     rows = (
         data.get("picks")
@@ -111,8 +223,6 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
             continue
         fid = row.get("fixtureId", row.get("fixture_id", row.get("PredictionId")))
         mkey = row.get("marketKey", row.get("market_key", row.get("Market")))
-        score = row.get("score", row.get("Score", row.get("rating")))
-        approve = row.get("approve", row.get("Approve", row.get("passed")))
         reason = row.get("reason", row.get("Reason", "")) or ""
         try:
             fid_i = int(fid)
@@ -120,25 +230,123 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
             continue
         if not mkey:
             continue
-        try:
-            score_i = int(round(float(score)))
-        except (TypeError, ValueError):
-            continue
-        score_i = max(0, min(100, score_i))
-        if isinstance(approve, str):
-            approve_b = approve.strip().lower() in ("1", "true", "yes", "y")
+
+        has_components = any(
+            k in row
+            for k in (
+                "agreement",
+                "Agreement",
+                "coherence",
+                "Coherence",
+                "marketTrust",
+                "market_trust",
+                "MarketTrust",
+            )
+        )
+        approve_b, _ = _parse_verdict_approve(row)
+        concerns = _parse_concerns(row.get("concerns", row.get("Concerns")))
+
+        components: Optional[Dict[str, Any]] = None
+        score_source = "flat"
+        score_i: Optional[int] = None
+
+        if has_components:
+            agreement = _clamp_component(
+                row.get("agreement", row.get("Agreement")), default=0
+            )
+            coherence = _clamp_component(
+                row.get("coherence", row.get("Coherence")), default=0
+            )
+            market_trust = _clamp_component(
+                row.get(
+                    "marketTrust",
+                    row.get("market_trust", row.get("MarketTrust")),
+                ),
+                default=0,
+            )
+            components = {
+                "agreement": agreement,
+                "coherence": coherence,
+                "market_trust": market_trust,
+                "concerns": concerns,
+            }
+            # Score filled in gate once candidate prob is known; placeholder for parse-only.
+            score_i = compute_publish_score(
+                agreement=agreement,
+                coherence=coherence,
+                market_trust=market_trust,
+                concerns=concerns,
+                prob=None,
+            )
+            score_source = "components"
         else:
-            approve_b = bool(approve)
+            score = row.get("score", row.get("Score", row.get("rating")))
+            try:
+                score_i = int(round(float(score)))
+            except (TypeError, ValueError):
+                continue
+            score_i = max(0, min(100, score_i))
+            score_source = "flat"
+
         out.append(
             {
                 "fixture_id": fid_i,
                 "market_key": str(mkey),
-                "score": score_i,
+                "score": int(score_i),
                 "approve": approve_b,
                 "reason": str(reason).strip()[:512],
+                "score_source": score_source,
+                "components": components,
+                "concerns": concerns,
             }
         )
     return out
+
+
+def _finalize_score_for_candidate(
+    score_row: Dict[str, Any],
+    cand: Dict[str, Any],
+) -> Tuple[int, str]:
+    """
+    Return (final_score, score_source). Recompute from components when present,
+    using the candidate's probability for the capped strength term.
+    """
+    components = score_row.get("components")
+    if isinstance(components, dict) and score_row.get("score_source") == "components":
+        agreement = _clamp_component(components.get("agreement"))
+        coherence = _clamp_component(components.get("coherence"))
+        market_trust = _clamp_component(components.get("market_trust"))
+        concerns = list(components.get("concerns") or score_row.get("concerns") or [])
+        score = compute_publish_score(
+            agreement=agreement,
+            coherence=coherence,
+            market_trust=market_trust,
+            concerns=concerns,
+            prob=cand.get("prob"),
+        )
+        return score, "components"
+
+    score = int(score_row.get("score") or 0)
+    score = max(0, min(100, score))
+    try:
+        prob = float(cand.get("prob"))
+        echo = abs(score - int(round(prob * 100)))
+        logger.warning(
+            "AI vet flat-score fallback fixture=%s market=%s score=%s model_pct=%s echo_delta=%s",
+            cand.get("fixture_id"),
+            cand.get("market_key"),
+            score,
+            int(round(prob * 100)),
+            echo,
+        )
+    except (TypeError, ValueError):
+        logger.warning(
+            "AI vet flat-score fallback fixture=%s market=%s score=%s",
+            cand.get("fixture_id"),
+            cand.get("market_key"),
+            score,
+        )
+    return score, "flat"
 
 
 def gate_screen_scores(
@@ -150,6 +358,7 @@ def gate_screen_scores(
     """
     Keep approved scores >= min_score that match a known candidate.
     One pick per fixture (highest score wins).
+    Recomputes component scores with candidate probability.
     """
     threshold = int(min_score if min_score is not None else config.AI_VET_MIN_SCORE)
     by_key = {
@@ -165,18 +374,22 @@ def gate_screen_scores(
             continue
         if not s.get("approve"):
             continue
-        if int(s["score"]) < threshold:
+        final_score, score_source = _finalize_score_for_candidate(s, cand)
+        if final_score < threshold:
             continue
         fid = int(s["fixture_id"])
+        components = s.get("components") if isinstance(s.get("components"), dict) else None
         merged = {
             **cand,
-            "ai_score": int(s["score"]),
+            "ai_score": final_score,
             "ai_reason": s.get("reason") or "",
             "ai_approve": True,
+            "ai_score_source": score_source,
+            "ai_components": components,
         }
         prev = best_by_fixture.get(fid)
-        if prev is None or int(s["score"]) > prev[0]:
-            best_by_fixture[fid] = (int(s["score"]), merged)
+        if prev is None or final_score > prev[0]:
+            best_by_fixture[fid] = (final_score, merged)
     approved = [item for _, item in best_by_fixture.values()]
     approved.sort(
         key=lambda p: (
@@ -186,6 +399,40 @@ def gate_screen_scores(
         )
     )
     return approved
+
+
+def _score_telemetry(approved: List[Dict[str, Any]]) -> Dict[str, Any]:
+    scores = [int(p.get("ai_score") or 0) for p in approved]
+    n_flat = sum(1 for p in approved if p.get("ai_score_source") == "flat")
+    echo_n = 0
+    for p in approved:
+        try:
+            prob = float(p.get("prob"))
+        except (TypeError, ValueError):
+            continue
+        if abs(int(p.get("ai_score") or 0) - int(round(prob * 100))) <= ECHO_DELTA:
+            echo_n += 1
+    n = len(scores)
+    if n:
+        ordered = sorted(scores)
+        mid = n // 2
+        if n % 2:
+            median = ordered[mid]
+        else:
+            median = (ordered[mid - 1] + ordered[mid]) / 2.0
+        score_min = ordered[0]
+        score_max = ordered[-1]
+    else:
+        median = None
+        score_min = None
+        score_max = None
+    return {
+        "echo_rate": (echo_n / n) if n else 0.0,
+        "score_min": score_min,
+        "score_median": median,
+        "score_max": score_max,
+        "n_flat_score_fallback": n_flat,
+    }
 
 
 def replace_ai_picks_for_day(
@@ -301,6 +548,7 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
         payload["ai_reason"] = d.get("reason") or payload.get("ai_reason") or ""
         payload["ai_model"] = d.get("model")
         payload["ai_day"] = d.get("day")
+        # ai_components / ai_score_source ride along in pick_json when present.
         out.append(payload)
     return out
 
@@ -360,6 +608,11 @@ def vet_strongest_for_day(
         "skipped_no_candidates": False,
         "errors": 0,
         "message": None,
+        "echo_rate": 0.0,
+        "score_min": None,
+        "score_median": None,
+        "score_max": None,
+        "n_flat_score_fallback": 0,
     }
 
     if not config.OPENAI_API_KEY and chat_fn is None:
@@ -389,14 +642,14 @@ def vet_strongest_for_day(
                 "day": day_key,
                 "batch": bi,
                 "batchCount": len(batches),
-                "minScoreHint": config.AI_VET_MIN_SCORE,
                 "fixtures": [fixture_group_payload(g) for g in batch],
             }
             user = (
                 f"For each fixture below, pick at most one market candidate to publish "
                 f"for {day_key} (batch {bi}/{len(batches)}). "
-                f"Use approve=false or omit fixtures you would not publish. "
-                f"Be selective; only approve when confident.\n"
+                f"Return component judgments (agreement, coherence, marketTrust, concerns, "
+                f"verdict). Use verdict=skip or omit fixtures you would not publish. "
+                f"Do not return a 0-100 score. Be selective.\n"
                 f"{json.dumps(payload, ensure_ascii=False)}"
             )
             if chat_fn is not None:
@@ -423,7 +676,10 @@ def vet_strongest_for_day(
         written = replace_ai_picks_for_day(conn, day_key, approved, model=model)
         summary["n_approved"] = len(approved)
         summary["written"] = written
-        summary["message"] = f"Approved {written} of {len(groups)} fixtures ({len(candidates)} candidates)"
+        summary.update(_score_telemetry(approved))
+        summary["message"] = (
+            f"Approved {written} of {len(groups)} fixtures ({len(candidates)} candidates)"
+        )
         logger.info("AI vet: %s", summary)
         return summary
     except OpenAIError as exc:

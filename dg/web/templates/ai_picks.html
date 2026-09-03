@@ -6,8 +6,8 @@
   <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
   <h1>AI Picks</h1>
   <p class="lede">
-    Top qualifying market candidates per fixture, chosen by an LLM screen — only published when the model
-    approves with a high score. Still exploratory analytics, not betting advice.
+    Top qualifying market candidates per fixture, chosen by an LLM screen — only published when
+    publish confidence clears the bar. Still exploratory analytics, not betting advice.
   </p>
 </section>
 
@@ -49,7 +49,7 @@
         <span class="league">{{ p.league_display or p.league or "—" }}</span>
         <span class="kickoff">{{ p.kickoff_display }}</span>
         {% if p.ai_score is not none %}
-        <span class="ft-score" title="AI screen score">AI {{ p.ai_score }}</span>
+        <span class="ft-score" title="Publish confidence from the AI screen — not the model lean percentage">Publish conf. {{ p.ai_score }}</span>
         {% endif %}
         {% if p.completed and p.ft_score %}
         <span class="ft-score" title="Full-time score">Final {{ p.ft_score }}</span>
@@ -66,7 +66,7 @@
         {% endwith %}
         <div class="lean-block lean-settle">
           <p class="featured-market">{{ p.market_label or p.market_key }}</p>
-          <p class="lean">{{ p.lean_plain or p.lean }}{% if p.prob_plain %} <span class="lean-prob">{{ p.prob_plain }}</span>{% endif %}
+          <p class="lean">{{ p.lean_plain or p.lean }}{% if p.prob_plain %} <span class="lean-prob" title="Model lean probability">Model lean · {{ p.prob_plain }}</span>{% endif %}
             {% if p.lean_result_key == 'hit' or p.lean_result_key == 'miss' %}
             <span class="lean-result lean-{{ p.lean_result_key }}">{{ p.lean_result_label }}</span>
             {% endif %}
@@ -77,6 +77,11 @@
 
       {% if p.ai_reason %}
       <p class="strength"><strong>AI note:</strong> {{ p.ai_reason }}</p>
+      {% endif %}
+      {% if p.ai_components %}
+      <p class="strength" title="Component judgments used to compute publish confidence">
+        Screen: agreement {{ p.ai_components.agreement }}/3 · coherence {{ p.ai_components.coherence }}/3 · market trust {{ p.ai_components.market_trust }}/3
+      </p>
       {% endif %}
 
       {% if p.strength_label %}

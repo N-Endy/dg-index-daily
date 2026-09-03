@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 
 from dg.ai.vet_strongest import (
+    compute_publish_score,
+    fixture_group_payload,
     gate_screen_scores,
     parse_screen_response,
     replace_ai_picks_for_day,
@@ -85,6 +87,92 @@ def test_extract_message_content_from_parts():
     )
 
 
+def test_compute_publish_score_not_echo_of_prob():
+    # Fully agreed, coherent, Poisson-backed at 96% must not land near 96.
+    score = compute_publish_score(
+        agreement=3,
+        coherence=3,
+        market_trust=3,
+        concerns=[],
+        prob=0.96,
+    )
+    assert score == 100
+    assert score != 96
+
+    thin = compute_publish_score(
+        agreement=1,
+        coherence=1,
+        market_trust=2,
+        concerns=["single source only"],
+        prob=0.96,
+    )
+    assert thin < 70
+    assert abs(thin - 96) > 20
+
+
+def test_compute_publish_score_differs_at_same_prob():
+    strong = compute_publish_score(
+        agreement=3, coherence=3, market_trust=3, concerns=[], prob=0.80
+    )
+    weak = compute_publish_score(
+        agreement=1, coherence=1, market_trust=1, concerns=[], prob=0.80
+    )
+    assert strong > weak
+    assert strong - weak >= 20
+
+
+def test_parse_component_response():
+    raw = json.dumps(
+        {
+            "picks": [
+                {
+                    "fixtureId": 10,
+                    "marketKey": "goals_2_5",
+                    "verdict": "publish",
+                    "agreement": 3,
+                    "coherence": 2,
+                    "marketTrust": 3,
+                    "concerns": ["thin book"],
+                    "reason": "Aligned over with solid drivers.",
+                }
+            ]
+        }
+    )
+    rows = parse_screen_response(raw)
+    assert len(rows) == 1
+    assert rows[0]["fixture_id"] == 10
+    assert rows[0]["market_key"] == "goals_2_5"
+    assert rows[0]["approve"] is True
+    assert rows[0]["score_source"] == "components"
+    assert rows[0]["components"]["agreement"] == 3
+    assert rows[0]["components"]["coherence"] == 2
+    assert rows[0]["components"]["market_trust"] == 3
+    assert "thin book" in rows[0]["concerns"]
+
+
+def test_fixture_group_payload_shuffles_deterministically():
+    group = {
+        "fixture_id": 42,
+        "home_name": "A",
+        "away_name": "B",
+        "league": "EPL",
+        "date_utc": "2026-08-30T15:00:00+00:00",
+        "candidates": [
+            {"fixture_id": 42, "market_key": "match_1x2", "lean": "Home", "prob": 0.7},
+            {"fixture_id": 42, "market_key": "goals_2_5", "lean": "Over", "prob": 0.8},
+            {"fixture_id": 42, "market_key": "btts", "lean": "Yes", "prob": 0.75},
+        ],
+    }
+    a = fixture_group_payload(group)
+    b = fixture_group_payload(group)
+    keys_a = [c["marketKey"] for c in a["candidates"]]
+    keys_b = [c["marketKey"] for c in b["candidates"]]
+    assert keys_a == keys_b
+    assert set(keys_a) == {"match_1x2", "goals_2_5", "btts"}
+    assert "minScoreHint" not in a
+    assert "prob" in a["candidates"][0]
+
+
 def test_vet_batches_candidates(tmp_path, monkeypatch):
     from dg import config
     import dg.ai.vet_strongest as vs
@@ -105,6 +193,8 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
 
     def fake_chat(system, user):
         calls["n"] += 1
+        assert "minScoreHint" not in user
+        assert "Do not return a 0-100 score" in system or "component" in system.lower()
         fids = [1, 2] if calls["n"] == 1 else [3, 4]
         return json.dumps(
             {
@@ -112,8 +202,11 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
                     {
                         "fixtureId": fid,
                         "marketKey": "match_1x2",
-                        "score": 80,
-                        "approve": True,
+                        "verdict": "publish",
+                        "agreement": 3,
+                        "coherence": 3,
+                        "marketTrust": 2,
+                        "concerns": [],
                         "reason": "ok",
                     }
                     for fid in fids
@@ -126,6 +219,8 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     assert calls["n"] == 2
     assert summary["n_batches"] == 2
     assert summary["written"] == 4
+    assert summary["n_flat_score_fallback"] == 0
+    assert "echo_rate" in summary
     conn.close()
 
 
@@ -149,6 +244,7 @@ def test_parse_screen_response_resilient_keys():
     assert rows[0]["market_key"] == "goals_2_5"
     assert rows[0]["score"] == 88
     assert rows[0]["approve"] is True
+    assert rows[0]["score_source"] == "flat"
 
 
 def test_gate_requires_approve_and_min_score():
@@ -191,6 +287,62 @@ def test_gate_requires_approve_and_min_score():
     assert len(approved) == 1
     assert approved[0]["fixture_id"] == 1
     assert approved[0]["ai_score"] == 90
+
+
+def test_gate_components_recompute_with_prob():
+    cands = [
+        {
+            "fixture_id": 1,
+            "market_key": "goals_2_5",
+            "league": "EPL",
+            "prob": 0.96,
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        }
+    ]
+    scores = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "agreement": 3,
+                        "coherence": 3,
+                        "marketTrust": 3,
+                        "concerns": [],
+                        "reason": "full stack",
+                    }
+                ]
+            }
+        )
+    )
+    approved = gate_screen_scores(cands, scores, min_score=70)
+    assert len(approved) == 1
+    assert approved[0]["ai_score"] == 100
+    assert approved[0]["ai_score_source"] == "components"
+    assert approved[0]["ai_score"] != 96
+    # Thin single-source at same prob must not clear the floor.
+    thin_scores = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "agreement": 1,
+                        "coherence": 1,
+                        "marketTrust": 2,
+                        "concerns": ["dg only"],
+                        "reason": "thin",
+                    }
+                ]
+            }
+        )
+    )
+    thin = gate_screen_scores(cands, thin_scores, min_score=70)
+    assert thin == []
 
 
 def test_gate_one_per_fixture_keeps_higher_score():
@@ -252,6 +404,7 @@ def test_replace_and_load_ai_picks(tmp_path):
             "away_name": "Swansea",
             "ai_score": 81,
             "ai_reason": "Strong over signal.",
+            "ai_components": {"agreement": 3, "coherence": 2, "market_trust": 3, "concerns": []},
         }
     ]
     n = replace_ai_picks_for_day(conn, "2026-08-30", approved, model="test-model")
@@ -262,6 +415,7 @@ def test_replace_and_load_ai_picks(tmp_path):
     assert "Strong over" in loaded[0]["ai_reason"]
     assert loaded[0]["home_logo"] == "https://example.com/home.png"
     assert loaded[0]["away_logo"] == "https://example.com/away.png"
+    assert loaded[0]["ai_components"]["agreement"] == 3
     conn.close()
 
 
@@ -289,28 +443,6 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
     config.ensure_dirs()
 
-    fake_pick = {
-        "fixture_id": 7,
-        "market_key": "match_1x2",
-        "market_label": "Match winner",
-        "lean": "Home",
-        "lean_plain": "Favours Home",
-        "confidence": "high",
-        "prob": 0.7,
-        "agreement_key": "aligned",
-        "agreement_label": "Aligned",
-        "league": "Premier League",
-        "home_name": "Home FC",
-        "away_name": "Away FC",
-        "date_utc": "2026-08-30T15:00:00+00:00",
-        "kickoff_display": "Sun 30 Aug · 16:00 WAT",
-        "why": ["rating gap"],
-        "dg_sim_lean": "Home",
-        "book_lean": "Home",
-        "score": 0.4,
-        "probs": {"home": 0.7, "draw": 0.2, "away": 0.1},
-        "markets": {},
-    }
     vet_day = {
         "day": "2026-08-30",
         "predictions": [{**_vet_prediction(7), "home_name": "Home FC", "away_name": "Away FC"}],
@@ -325,15 +457,18 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     )
 
     def fake_chat(system, user):
-        assert "conservative" in system.lower() or "Score" in system or "JSON" in system
+        assert "component" in system.lower() or "publish" in system.lower()
         return json.dumps(
             {
                 "picks": [
                     {
                         "fixtureId": 7,
                         "marketKey": "match_1x2",
-                        "score": 85,
-                        "approve": True,
+                        "verdict": "publish",
+                        "agreement": 3,
+                        "coherence": 3,
+                        "marketTrust": 2,
+                        "concerns": [],
                         "reason": "Aligned home lean.",
                     }
                 ]
@@ -342,7 +477,6 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
 
     conn = init_db(connect(config.DB_PATH))
     _seed_fixture(conn, 7)
-    # Patch load_strongest_day where vet imports it
     import dg.ai.vet_strongest as vs
 
     monkeypatch.setattr(
@@ -355,10 +489,57 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     assert summary["n_candidates"] == 1
     assert summary["written"] == 1
     assert summary["n_approved"] == 1
+    assert summary["n_flat_score_fallback"] == 0
     from dg.ai.vet_strongest import load_ai_picks
 
     picks = load_ai_picks(conn, "2026-08-30")
-    assert picks[0]["ai_score"] == 85
+    # agreement 3 + coherence 3 + trust 2 + strength(0.7→0.5) = 30+30+13.33+10 ≈ 83
+    assert picks[0]["ai_score"] >= 70
+    assert abs(picks[0]["ai_score"] - 70) > 3  # not echoing match-winner %
+    conn.close()
+
+
+def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 70)
+    config.ensure_dirs()
+
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [_vet_prediction(7)],
+            "picks": [],
+            "empty": False,
+        },
+    )
+
+    def fake_chat(system, user):
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 7,
+                        "marketKey": "match_1x2",
+                        "score": 85,
+                        "approve": True,
+                        "reason": "legacy flat score",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 7)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["written"] == 1
+    assert summary["n_flat_score_fallback"] == 1
     conn.close()
 
 
@@ -421,8 +602,11 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
                     {
                         "fixtureId": 99,
                         "marketKey": "btts",
-                        "score": 88,
-                        "approve": True,
+                        "verdict": "publish",
+                        "agreement": 3,
+                        "coherence": 3,
+                        "marketTrust": 3,
+                        "concerns": [],
                         "reason": "BTTS more coherent.",
                     }
                 ]

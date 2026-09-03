@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 from dg import config
 from dg.ai.vet_strongest import load_ai_picks
 from dg.report.loaders import (
-    _fixture_sort_key,
     get_connection,
     load_dashboard_context,
     today_wat,
@@ -32,7 +31,14 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
     finally:
         conn.close()
 
-    picks.sort(key=_fixture_sort_key)
+    # Highest publish confidence first; kickoff breaks ties within a score.
+    picks.sort(
+        key=lambda p: (
+            -int(p.get("ai_score") or 0),
+            p.get("date_utc") or "",
+            (p.get("league_display") or p.get("league") or "").lower(),
+        )
+    )
 
     empty_db = bool(ctx.get("empty"))
     message = None

@@ -39,7 +39,7 @@ FD_SEASON=2627                     # football-data.co.uk season for results back
 API_FOOTBALL_KEY=...               # optional; leftovers only — unset if the account is suspended
 OPENAI_API_KEY=...                 # optional; enables AI Picks (LLM screen of Strongest leans)
 OPENAI_MODEL=gpt-5.6-luna          # optional; default gpt-5.6-luna
-AI_VET_MIN_SCORE=70                # optional; approve floor for AI Picks
+AI_VET_MIN_SCORE=70                # optional; publish-confidence floor for AI Picks
 SCORE_LINK_SECRET=...              # optional; unlock Flashscore “!” near-miss score confirms
 ```
 
@@ -66,7 +66,7 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 
 Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate.
 
-**AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens Strongest leans via an OpenAI-compatible API. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
+**AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens top-N gate-passing candidates per fixture via an OpenAI-compatible API. The LLM returns component judgments; publish confidence is computed in code and is **not** the model lean percentage. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
 
 **Score near-miss (!):** set `SCORE_LINK_SECRET`, then visit `/score-link/unlock?token=YOUR_SECRET` once (HttpOnly cookie, 12h). Awaiting fixtures with soft Flashscore name matches show **!** — confirm a candidate to write **Final**.
 
