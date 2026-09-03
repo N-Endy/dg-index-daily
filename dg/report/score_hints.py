@@ -31,12 +31,14 @@ def persist_flashscore_rows(
     batch_size = max(1, int(config.FLASHSCORE_PERSIST_BATCH))
     sql = """
         INSERT INTO flashscore_row (
-            scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint, fingerprint
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            scraped_at, day_offset, league, home, away, fthg, ftag,
+            kickoff_hint, match_id, fingerprint
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(fingerprint) DO UPDATE SET
             scraped_at=excluded.scraped_at,
             day_offset=COALESCE(excluded.day_offset, flashscore_row.day_offset),
-            kickoff_hint=COALESCE(excluded.kickoff_hint, flashscore_row.kickoff_hint)
+            kickoff_hint=COALESCE(excluded.kickoff_hint, flashscore_row.kickoff_hint),
+            match_id=COALESCE(excluded.match_id, flashscore_row.match_id)
         """
     pending: List[tuple] = []
     n = 0
@@ -60,6 +62,7 @@ def persist_flashscore_rows(
             continue
         fp = row_fingerprint(row)
         off = row.get("day_offset", day_offset)
+        mid = (row.get("match_id") or "").strip() or None
         pending.append(
             (
                 now,
@@ -70,6 +73,7 @@ def persist_flashscore_rows(
                 fthg,
                 ftag,
                 row.get("kickoff_hint") or "",
+                mid,
                 fp,
             )
         )
@@ -83,7 +87,7 @@ def persist_flashscore_rows(
 def load_recent_flashscore_rows(conn, *, limit: int = 4000) -> List[Dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT id, scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint
+        SELECT id, scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint, match_id
         FROM flashscore_row
         ORDER BY scraped_at DESC, id DESC
         LIMIT ?
@@ -226,7 +230,7 @@ def load_fixture_for_confirm(conn, fixture_id: int) -> Optional[Dict[str, Any]]:
 def load_flashscore_row(conn, row_id: int) -> Optional[Dict[str, Any]]:
     row = conn.execute(
         """
-        SELECT id, scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint
+        SELECT id, scraped_at, day_offset, league, home, away, fthg, ftag, kickoff_hint, match_id
         FROM flashscore_row WHERE id = ?
         """,
         (int(row_id),),

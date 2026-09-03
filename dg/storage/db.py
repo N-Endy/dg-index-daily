@@ -130,6 +130,28 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
     if mpc_cols and "auc_se" not in mpc_cols:
         c.execute("ALTER TABLE market_prob_calibration ADD COLUMN auc_se REAL")
 
+    fs_cols = {row[1] for row in c.execute("PRAGMA table_info(flashscore_row)").fetchall()}
+    if fs_cols and "match_id" not in fs_cols:
+        c.execute("ALTER TABLE flashscore_row ADD COLUMN match_id TEXT")
+    if not fs_cols:
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS flashscore_row (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scraped_at TEXT NOT NULL,
+                day_offset INTEGER,
+                league TEXT,
+                home TEXT NOT NULL,
+                away TEXT NOT NULL,
+                fthg INTEGER NOT NULL,
+                ftag INTEGER NOT NULL,
+                kickoff_hint TEXT,
+                match_id TEXT,
+                fingerprint TEXT NOT NULL UNIQUE
+            )
+            """
+        )
+
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     own = conn is None

@@ -52,7 +52,7 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | Matches / Strongest / AI Picks (`cron_matches.sh`) | 00:00, 05:00 |
 | Flashscore scores (`cron_scores.sh`) | 06:00, 16:00, 18:00, 20:00, 22:00 |
 
-**Final scores:** Flashscore scrapes run on the score schedule above (Playwright/Chromium in the image) via `sync-scores`, with football-data.co.uk as a secondary path. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
+**Final scores:** Flashscore scrapes run on the score schedule above (Playwright/Chromium in the image) via `sync-scores`, then `sync-match-stats` fills corners/shots/cards for leagues football-data.co.uk does not cover. football-data.co.uk remains the secondary path for goals and for stats on its eleven main leagues. You do **not** need API-Football for scores. If `API_FOOTBALL_KEY` is suspended, remove it from Variables to avoid useless errors.
 
 
 **Market selection (optional):**
@@ -73,6 +73,9 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | `STRONGEST_POISSON_PROB_EPSILON` | `0.03` | Prefer higher prob over Poisson tie-break when gap ≥ this |
 | `STRONGEST_USE_MARKET_HIT_RATES` | `0` | Use backtest hit rates as ranking tie-break |
 | `STRONGEST_MARKET_HIT_MIN_GRADED` | `100` | Min samples per market before hit rate applies |
+| `FLASHSCORE_STATS_ENABLED` | `1` | Fetch Flashscore `?t=stats` after score sync |
+| `FLASHSCORE_STATS_MAX_MATCHES` | `40` | Cap on match stats pages per `sync-match-stats` run |
+| `FLASHSCORE_STATS_DELAY_SEC` | `1.0` | Sleep between stats page fetches |
 
 Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate. Run `python -m dg.cli market-audit` to compare stated market percentages with actual hit rates (AUC and cross-validated log-loss vs a constant).
 
@@ -111,6 +114,7 @@ python run_daily.py
 python -m dg.cli vet-ai-picks
 python -m dg.cli backfill-results --season 2627
 python -m dg.cli sync-scores
+python -m dg.cli sync-match-stats
 ```
 
 Manual `sync-scores` is safe while the site is live (SQLite WAL). If you see `database is locked`, retry once — you do not need to stop uvicorn.

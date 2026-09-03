@@ -14,10 +14,25 @@ from dg import config
 logger = logging.getLogger(__name__)
 
 SCORE_RE = re.compile(r"^(?P<home>\d{1,2})\s*[-:]\s*(?P<away>\d{1,2})")
+MATCH_ID_RE = re.compile(r"/match/([A-Za-z0-9]+)")
 _MOBILE_UA = (
     "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 )
+
+_STATS_LABELS = {
+    "Total shots": ("hs", "as_shots"),
+    "Shots on target": ("hst", "ast"),
+    "Corner kicks": ("hc", "ac"),
+    "Yellow cards": ("hy", "ay"),
+    "Red cards": ("hr", "ar"),
+}
+_STAT_LINE_RE = re.compile(
+    r"^(\d+)\s+("
+    + "|".join(re.escape(label) for label in _STATS_LABELS)
+    + r")\s+(\d+)$"
+)
+_BLOCK_TAGS = frozenset({"div", "tr", "p", "br", "li", "table", "section", "h3", "h4"})
 
 # Module-level cooldown after Cloudflare / repeated failures (MatchPredictor health tracker)
 _cooldown_until_monotonic: float = 0.0
@@ -96,6 +111,7 @@ class _ScoreDataParser(HTMLParser):
         self._in_a = False
         self._a_class = ""
         self._a_text = ""
+        self._a_match_id: Optional[str] = None
         self._capture_h4 = False
         self._h4_buf = ""
         self._capture_span = False
@@ -117,6 +133,9 @@ class _ScoreDataParser(HTMLParser):
             self._in_a = True
             self._a_class = attrs_d.get("class", "")
             self._a_text = ""
+            href = attrs_d.get("href", "")
+            m = MATCH_ID_RE.search(href)
+            self._a_match_id = m.group(1) if m else None
             return
 
     def handle_endtag(self, tag: str) -> None:
@@ -192,10 +211,12 @@ class _ScoreDataParser(HTMLParser):
                 "ftag": ftag,
                 "is_live": is_live and not is_fin,
                 "kickoff_hint": self._pending_time,
+                "match_id": self._a_match_id,
             }
         )
         self._capture_text_for_teams = False
         self._teams_buf = ""
+        self._a_match_id = None
 
 
 def parse_score_data_html(raw_html: str, *, finished_only: bool = True) -> List[Dict[str, Any]]:
@@ -208,6 +229,141 @@ def parse_score_data_html(raw_html: str, *, finished_only: bool = True) -> List[
     parser.feed(wrapped)
     parser.close()
     return parser.rows
+
+
+def match_stats_url(match_id: str) -> str:
+    base = config.FLASHSCORE_URL.rstrip("/")
+    mid = (match_id or "").strip()
+    return f"{base}/match/{mid}/?t=stats"
+
+
+class _MatchStatsTextParser(HTMLParser):
+    """Flatten a stats page into newline-separated text for line matching."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        if tag == "br":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if data:
+            self.parts.append(data)
+
+
+def parse_match_stats_html(raw_html: str) -> Dict[str, int]:
+    """
+    Extract integer home/away stat pairs from a flashscore.mobi ?t=stats page.
+
+    Matches lines like ``21 Total shots 10`` after whitespace normalization.
+    Percentage / xG rows fail the integer pattern and are ignored.
+    """
+    if not raw_html or not raw_html.strip():
+        return {}
+    parser = _MatchStatsTextParser()
+    parser.feed(raw_html)
+    parser.close()
+    text = re.sub(r"[ \t]+", " ", "".join(parser.parts))
+    out: Dict[str, int] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = _STAT_LINE_RE.match(line)
+        if not m:
+            continue
+        home_v, label, away_v = int(m.group(1)), m.group(2), int(m.group(3))
+        keys = _STATS_LABELS.get(label)
+        if not keys:
+            continue
+        out[keys[0]] = home_v
+        out[keys[1]] = away_v
+    return out
+
+
+def fetch_match_stats(match_ids: List[str]) -> Dict[str, Dict[str, int]]:
+    """
+    Fetch ?t=stats for each match id using one Chromium session.
+
+    Missing or failed ids are omitted. Caps at FLASHSCORE_STATS_MAX_MATCHES
+    and sleeps FLASHSCORE_STATS_DELAY_SEC between pages.
+    """
+    ids: List[str] = []
+    seen: Set[str] = set()
+    for mid in match_ids:
+        m = (mid or "").strip()
+        if not m or m in seen:
+            continue
+        seen.add(m)
+        ids.append(m)
+    max_n = max(0, int(config.FLASHSCORE_STATS_MAX_MATCHES))
+    ids = ids[:max_n]
+    if not ids:
+        return {}
+
+    _check_cooldown()
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise FlashscoreUnavailableError(
+            "playwright is not installed — pip install playwright && playwright install chromium"
+        ) from exc
+
+    timeout_ms = int(config.FLASHSCORE_TIMEOUT_SEC * 1000)
+    delay = max(0.0, float(config.FLASHSCORE_STATS_DELAY_SEC))
+    out: Dict[str, Dict[str, int]] = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=_MOBILE_UA,
+                viewport={"width": 390, "height": 844},
+                locale="en-US",
+            )
+            page = context.new_page()
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            try:
+                for i, mid in enumerate(ids):
+                    if i > 0 and delay > 0:
+                        time.sleep(delay)
+                    url = match_stats_url(mid)
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                        title = page.title()
+                        body = page.content()
+                        if looks_like_challenge_page(body, title):
+                            _record_cooldown()
+                            raise FlashscoreBlockedError(
+                                f"Blocked by challenge page: {title} ({url})"
+                            )
+                        stats = parse_match_stats_html(body)
+                        if stats:
+                            out[mid] = stats
+                        else:
+                            logger.warning("Flashscore stats empty for match_id=%s", mid)
+                    except FlashscoreBlockedError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "Flashscore stats fetch failed for %s: %s", mid, exc
+                        )
+            finally:
+                browser.close()
+    except (FlashscoreBlockedError, FlashscoreCooldownError, FlashscoreUnavailableError):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Flashscore stats session failed: %s", exc)
+        _record_cooldown()
+        raise FlashscoreUnavailableError(str(exc)) from exc
+    return out
 
 
 _MAN_EXPAND_NEXT = frozenset({"united", "utd", "city"})

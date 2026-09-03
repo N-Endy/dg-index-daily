@@ -166,6 +166,11 @@ FLASHSCORE_HINT_MIN_SIDE = int(os.environ.get("FLASHSCORE_HINT_MIN_SIDE", "62"))
 FLASHSCORE_HINT_MIN_AVG = int(os.environ.get("FLASHSCORE_HINT_MIN_AVG", "70"))
 # Soft near-miss: require league label overlap when both sides have a league (0–1)
 FLASHSCORE_HINT_MIN_LEAGUE = float(os.environ.get("FLASHSCORE_HINT_MIN_LEAGUE", "0.50"))
+FLASHSCORE_STATS_ENABLED = os.environ.get(
+    "FLASHSCORE_STATS_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes")
+FLASHSCORE_STATS_MAX_MATCHES = int(os.environ.get("FLASHSCORE_STATS_MAX_MATCHES", "40"))
+FLASHSCORE_STATS_DELAY_SEC = float(os.environ.get("FLASHSCORE_STATS_DELAY_SEC", "1.0"))
 # Shared secret for confirming near-miss score links in the web UI
 SCORE_LINK_SECRET = os.environ.get("SCORE_LINK_SECRET", "").strip()
 SCORE_LINK_COOKIE = "dg_score_link"

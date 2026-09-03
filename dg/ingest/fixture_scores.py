@@ -89,29 +89,64 @@ def upsert_score_result(
             ftr = "A"
         else:
             ftr = "D"
+
+    def _stat(key: str) -> Optional[int]:
+        raw = score.get(key)
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    stats = {
+        "hs": _stat("hs"),
+        "as_shots": _stat("as_shots"),
+        "hst": _stat("hst"),
+        "ast": _stat("ast"),
+        "hc": _stat("hc"),
+        "ac": _stat("ac"),
+        "hy": _stat("hy"),
+        "ay": _stat("ay"),
+        "hr": _stat("hr"),
+        "ar": _stat("ar"),
+    }
     raw = {
         "fixture_id": fixture.get("fixture_id"),
         "source": source,
         "scraped_home": score.get("home"),
         "scraped_away": score.get("away"),
         "scraped_league": score.get("league"),
+        "match_id": score.get("match_id"),
         "fthg": fthg,
         "ftag": ftag,
         "ftr": ftr,
+        **{k: v for k, v in stats.items() if v is not None},
     }
     conn.execute(
         """
         INSERT INTO match_result (
             source, season, league_code, date, home_name, away_name,
             home_team_id, away_team_id, fthg, ftag, ftr, hthg, htag,
+            hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
             raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source, season, league_code, date, home_name, away_name)
         DO UPDATE SET
             home_team_id=excluded.home_team_id,
             away_team_id=excluded.away_team_id,
             fthg=excluded.fthg, ftag=excluded.ftag, ftr=excluded.ftr,
             hthg=excluded.hthg, htag=excluded.htag,
+            hs=COALESCE(excluded.hs, match_result.hs),
+            as_shots=COALESCE(excluded.as_shots, match_result.as_shots),
+            hst=COALESCE(excluded.hst, match_result.hst),
+            ast=COALESCE(excluded.ast, match_result.ast),
+            hc=COALESCE(excluded.hc, match_result.hc),
+            ac=COALESCE(excluded.ac, match_result.ac),
+            hy=COALESCE(excluded.hy, match_result.hy),
+            ay=COALESCE(excluded.ay, match_result.ay),
+            hr=COALESCE(excluded.hr, match_result.hr),
+            ar=COALESCE(excluded.ar, match_result.ar),
             raw_json=excluded.raw_json
         """,
         (
@@ -128,6 +163,16 @@ def upsert_score_result(
             ftr,
             score.get("hthg"),
             score.get("htag"),
+            stats["hs"],
+            stats["as_shots"],
+            stats["hst"],
+            stats["ast"],
+            stats["hc"],
+            stats["ac"],
+            stats["hy"],
+            stats["ay"],
+            stats["hr"],
+            stats["ar"],
             json.dumps(raw),
         ),
     )
@@ -489,6 +534,160 @@ def sync_fixture_scores(conn) -> Dict[str, Any]:
     }
     summary["written"] = int(flash.get("written") or 0) + api_written
     logger.info("Score sync summary: %s", summary)
+    return summary
+
+
+_STAT_PAIR_KEYS = (
+    ("hs", "as_shots"),
+    ("hst", "ast"),
+    ("hc", "ac"),
+    ("hy", "ay"),
+    ("hr", "ar"),
+)
+
+
+def _fixtures_missing_stats(conn) -> List[Dict[str, Any]]:
+    """Predicted past fixtures whose joined result has no corner stats."""
+    rows = conn.execute(
+        """
+        SELECT f.fixture_id, f.date_utc, f.league, f.home_name, f.away_name,
+               f.home_id, f.away_id
+        FROM fixture f
+        WHERE f.fixture_id IN (SELECT DISTINCT fixture_id FROM prediction)
+        ORDER BY f.date_utc
+        """
+    ).fetchall()
+    index = load_result_index(conn)
+    now = _utcnow()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        kickoff = _parse_kickoff(d.get("date_utc"))
+        if kickoff is None or kickoff > now:
+            continue
+        mr = lookup_result(
+            index,
+            home_id=d.get("home_id"),
+            away_id=d.get("away_id"),
+            date_utc=d.get("date_utc"),
+        )
+        if mr is None:
+            continue
+        get = mr.__getitem__ if not isinstance(mr, dict) else mr.get
+        try:
+            hc = get("hc")
+        except (KeyError, IndexError, TypeError):
+            hc = None
+        if hc is not None:
+            continue
+        out.append(d)
+    return out
+
+
+def _swap_stat_pairs(score: Dict[str, Any]) -> None:
+    for a, b in _STAT_PAIR_KEYS:
+        if a in score or b in score:
+            score[a], score[b] = score.get(b), score.get(a)
+
+
+def sync_match_stats(conn) -> Dict[str, Any]:
+    """
+    Fetch Flashscore ?t=stats for finished fixtures whose joined result
+    still lacks match stats. Isolated from sync-scores so a block cannot
+    disable goal sync.
+    """
+    summary: Dict[str, Any] = {
+        "enabled": bool(config.FLASHSCORE_STATS_ENABLED),
+        "candidates": 0,
+        "with_match_id": 0,
+        "fetched": 0,
+        "written": 0,
+        "skipped_disabled": False,
+        "skipped_cooldown": False,
+        "skipped_blocked": False,
+        "skipped_unavailable": False,
+        "errors": 0,
+    }
+    if not config.FLASHSCORE_STATS_ENABLED:
+        summary["skipped_disabled"] = True
+        return summary
+
+    candidates = _fixtures_missing_stats(conn)
+    summary["candidates"] = len(candidates)
+    if not candidates:
+        return summary
+
+    from dg.report.score_hints import load_recent_flashscore_rows
+    from dg.sources.flashscore import fetch_match_stats
+
+    scraped = load_recent_flashscore_rows(conn, limit=8000)
+    scraped_with_id = [r for r in scraped if (r.get("match_id") or "").strip()]
+    if not scraped_with_id:
+        logger.info("sync-match-stats: no flashscore_row match_ids yet")
+        return summary
+
+    planned: List[Tuple[Dict[str, Any], Dict[str, Any], bool]] = []
+    used_fps: Set[str] = set()
+    from dg.sources.flashscore import row_fingerprint
+
+    for fx in candidates:
+        matched = find_flashscore_row_for_fixture(fx, scraped_with_id, used_fps)
+        if matched is None:
+            continue
+        row, flipped = matched
+        mid = (row.get("match_id") or "").strip()
+        if not mid:
+            continue
+        planned.append((fx, row, flipped))
+        used_fps.add(row_fingerprint(row))
+
+    summary["with_match_id"] = len(planned)
+    if not planned:
+        return summary
+
+    ids = [(r.get("match_id") or "").strip() for _, r, _ in planned]
+    try:
+        stats_by_id = fetch_match_stats(ids)
+    except FlashscoreCooldownError as exc:
+        logger.warning("%s", exc)
+        summary["skipped_cooldown"] = True
+        summary["errors"] = 1
+        return summary
+    except FlashscoreBlockedError as exc:
+        logger.warning("Flashscore stats blocked: %s", exc)
+        summary["skipped_blocked"] = True
+        summary["errors"] = 1
+        return summary
+    except FlashscoreUnavailableError as exc:
+        logger.warning("Flashscore stats unavailable: %s", exc)
+        summary["skipped_unavailable"] = True
+        summary["errors"] = 1
+        return summary
+
+    summary["fetched"] = len(stats_by_id)
+    for fx, row, flipped in planned:
+        mid = (row.get("match_id") or "").strip()
+        stats = stats_by_id.get(mid)
+        if not stats:
+            continue
+        score = {
+            "home": row.get("home"),
+            "away": row.get("away"),
+            "league": row.get("league"),
+            "match_id": mid,
+            "fthg": row.get("fthg"),
+            "ftag": row.get("ftag"),
+            **stats,
+        }
+        if flipped:
+            score["fthg"], score["ftag"] = score.get("ftag"), score.get("fthg")
+            _swap_stat_pairs(score)
+        upsert_score_result(conn, fx, score, source=SOURCE_FLASHSCORE)
+        summary["written"] += 1
+
+    if summary["written"]:
+        conn.commit()
+    logger.info("Match stats sync: %s", summary)
     return summary
 
 

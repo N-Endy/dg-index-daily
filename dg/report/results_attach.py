@@ -118,10 +118,28 @@ def result_fields_from_row(mr: Any) -> Dict[str, Any]:
     }
 
 
+_STAT_KEYS = ("hs", "as_shots", "hst", "ast", "hc", "ac", "hy", "ay", "hr", "ar")
+
+
+def _stat_richness(mr: Any) -> int:
+    """Count of non-null match-stat columns (corners/shots/cards)."""
+    get = mr.__getitem__ if not isinstance(mr, dict) else mr.get
+    n = 0
+    for k in _STAT_KEYS:
+        try:
+            if get(k) is not None:
+                n += 1
+        except (KeyError, IndexError, TypeError):
+            continue
+    return n
+
+
 def build_result_index(rows: List[Any]) -> Dict[Tuple[int, int, str], Any]:
     """
     Index match_result rows by (home_team_id, away_team_id, YYYY-MM-DD).
-    Later rows overwrite earlier ones for the same key.
+
+    When multiple sources collide on the same key, prefer the row with more
+    non-null match stats. Equal richness keeps the incumbent (stable).
     """
     index: Dict[Tuple[int, int, str], Any] = {}
     for mr in rows:
@@ -135,7 +153,10 @@ def build_result_index(rows: List[Any]) -> Dict[Tuple[int, int, str], Any]:
             continue
         if not get("ftr"):
             continue
-        index[(int(hid), int(aid), day)] = mr
+        key = (int(hid), int(aid), day)
+        existing = index.get(key)
+        if existing is None or _stat_richness(mr) > _stat_richness(existing):
+            index[key] = mr
     return index
 
 

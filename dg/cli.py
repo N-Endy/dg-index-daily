@@ -334,6 +334,25 @@ def cmd_sync_scores(args: argparse.Namespace) -> int:
             return config.EXIT_CRITICAL
 
 
+def cmd_sync_match_stats(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    from dg.ingest.fixture_scores import sync_match_stats
+
+    with db_session() as conn:
+        try:
+            summary = sync_match_stats(conn)
+            logger.info("Sync match stats: %s", summary)
+            if summary.get("skipped_blocked") or summary.get("skipped_unavailable"):
+                return config.EXIT_PARTIAL
+            if summary.get("written", 0) == 0 and summary.get("skipped_cooldown"):
+                return config.EXIT_PARTIAL
+            return config.EXIT_OK
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Sync match stats failed: %s", exc)
+            return config.EXIT_CRITICAL
+
+
 def cmd_vet_ai_picks(args: argparse.Namespace) -> int:
     setup_logging(args.verbose)
     init_db()
@@ -471,6 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pull finished FT scores (Flashscore.mobi; optional API-Football leftovers)",
     )
     ss.set_defaults(func=cmd_sync_scores)
+
+    sms = sub.add_parser(
+        "sync-match-stats",
+        help="Pull Flashscore match stats (corners/shots/cards) for finished fixtures",
+    )
+    sms.set_defaults(func=cmd_sync_match_stats)
 
     vet = sub.add_parser(
         "vet-ai-picks",

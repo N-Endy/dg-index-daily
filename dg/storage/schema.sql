@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS flashscore_row (
     fthg INTEGER NOT NULL,
     ftag INTEGER NOT NULL,
     kickoff_hint TEXT,
+    match_id TEXT,
     fingerprint TEXT NOT NULL UNIQUE
 );
 

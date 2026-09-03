@@ -1,11 +1,11 @@
 """Tests for Flashscore parse/match and score sync."""
 from __future__ import annotations
 
-from dg.ingest.fixture_scores import sync_flashscore_scores, sync_fixture_scores, upsert_api_result
+from dg.ingest.fixture_scores import sync_fixture_scores, sync_flashscore_scores, upsert_api_result
 from dg.report.loaders import enrich_prediction_for_display
 from dg.report.results_attach import attach_result_to_prediction, build_result_index
 from dg.sources.apifootball import parse_finished_score
-from dg.sources.flashscore import parse_score_data_html, teams_match, team_match_score
+from dg.sources.flashscore import parse_score_data_html, team_match_score, teams_match
 from dg.storage.db import connect, init_db
 
 SAMPLE_HTML = (
@@ -18,6 +18,19 @@ SAMPLE_HTML = (
     '<a href="/match/c/" class="live">2-2</a><br />'
 )
 
+COPENHAGEN_STATS_HTML = """
+<html><body>
+<div>1.44 Expected goals (xG) 0.63</div>
+<div>41% Ball possession 59%</div>
+<div>21 Total shots 10</div>
+<div>7 Shots on target 1</div>
+<div>1.70 xG on target (xGOT) 0.72</div>
+<div>2 Corner kicks 0</div>
+<div>82% (337/412) Passes 85% (520/611)</div>
+<div>3 Yellow cards 2</div>
+</body></html>
+"""
+
 
 def test_parse_score_data_html_finished_and_skips_sched():
     rows = parse_score_data_html(SAMPLE_HTML, finished_only=True)
@@ -26,6 +39,7 @@ def test_parse_score_data_html_finished_and_skips_sched():
     assert rows[0]["away"] == "Comercial PI U20"
     assert rows[0]["fthg"] == 0 and rows[0]["ftag"] == 3
     assert rows[0]["is_live"] is False
+    assert rows[0]["match_id"] == "b"
 
 
 def test_parse_score_data_html_includes_live_when_requested():
@@ -34,6 +48,42 @@ def test_parse_score_data_html_includes_live_when_requested():
     live = next(r for r in rows if r["home"] == "GV San Jose")
     assert live["fthg"] == 2 and live["ftag"] == 2
     assert live["is_live"] is True
+    assert live["match_id"] == "c"
+
+
+def test_parse_score_data_html_match_id_from_real_href():
+    html = (
+        "<h4>DENMARK: Superliga</h4>"
+        "<span>20:00</span>FC Copenhagen - Nordsjaelland "
+        '<a href="/match/xA2hsg4F/" class="fin">2-0</a><br />'
+    )
+    rows = parse_score_data_html(html, finished_only=True)
+    assert len(rows) == 1
+    assert rows[0]["match_id"] == "xA2hsg4F"
+
+
+def test_parse_score_data_html_match_id_none_without_href():
+    html = (
+        "<h4>TEST</h4>"
+        "<span>20:00</span>Home FC - Away FC "
+        '<a class="fin">1-0</a><br />'
+    )
+    rows = parse_score_data_html(html, finished_only=True)
+    assert len(rows) == 1
+    assert rows[0]["match_id"] is None
+
+
+def test_parse_match_stats_html_copenhagen():
+    from dg.sources.flashscore import parse_match_stats_html
+
+    stats = parse_match_stats_html(COPENHAGEN_STATS_HTML)
+    assert stats["hs"] == 21 and stats["as_shots"] == 10
+    assert stats["hst"] == 7 and stats["ast"] == 1
+    assert stats["hc"] == 2 and stats["ac"] == 0
+    assert stats["hy"] == 3 and stats["ay"] == 2
+    assert "hr" not in stats and "ar" not in stats
+    # Must not confuse xGOT / possession / passes with shots
+    assert stats["hst"] == 7
 
 
 def test_teams_match_fuzzy():
@@ -617,4 +667,135 @@ def test_persist_flashscore_rows_batches(tmp_path, monkeypatch):
     assert n == 300
     count = conn.execute("SELECT COUNT(*) FROM flashscore_row").fetchone()[0]
     assert int(count) == 300
+    conn.close()
+
+
+def test_upsert_score_result_writes_and_preserves_stats(tmp_path, monkeypatch):
+    from dg import config
+    from dg.ingest.fixture_scores import upsert_score_result
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "upsert_stats.db")
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    fx = {
+        "fixture_id": 1,
+        "date_utc": "2026-09-03T18:00:00+00:00",
+        "league": "Superliga",
+        "home_name": "FC Copenhagen",
+        "away_name": "Nordsjaelland",
+        "home_id": 10,
+        "away_id": 20,
+    }
+    upsert_score_result(
+        conn,
+        fx,
+        {
+            "fthg": 2,
+            "ftag": 0,
+            "hs": 21,
+            "as_shots": 10,
+            "hst": 7,
+            "ast": 1,
+            "hc": 2,
+            "ac": 0,
+            "hy": 3,
+            "ay": 2,
+            "match_id": "xA2hsg4F",
+        },
+        source="flashscore",
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT hs, as_shots, hst, ast, hc, ac, hy, ay FROM match_result WHERE source='flashscore'"
+    ).fetchone()
+    assert dict(row) == {
+        "hs": 21,
+        "as_shots": 10,
+        "hst": 7,
+        "ast": 1,
+        "hc": 2,
+        "ac": 0,
+        "hy": 3,
+        "ay": 2,
+    }
+
+    # Second upsert without stats must not wipe stored values.
+    upsert_score_result(conn, fx, {"fthg": 2, "ftag": 0}, source="flashscore")
+    conn.commit()
+    row2 = conn.execute(
+        "SELECT hs, hc, hy, fthg FROM match_result WHERE source='flashscore'"
+    ).fetchone()
+    assert row2["hs"] == 21 and row2["hc"] == 2 and row2["hy"] == 3
+    assert row2["fthg"] == 2
+    conn.close()
+
+
+def test_upsert_flipped_stats_pairs(tmp_path, monkeypatch):
+    from dg import config
+    from dg.ingest.fixture_scores import _swap_stat_pairs, upsert_score_result
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "flip_stats.db")
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    fx = {
+        "fixture_id": 2,
+        "date_utc": "2026-09-03T18:00:00+00:00",
+        "league": "Test",
+        "home_name": "Home FC",
+        "away_name": "Away FC",
+        "home_id": 1,
+        "away_id": 2,
+    }
+    score = {
+        "fthg": 0,
+        "ftag": 2,
+        "hs": 10,
+        "as_shots": 21,
+        "hst": 1,
+        "ast": 7,
+        "hc": 0,
+        "ac": 2,
+        "hy": 2,
+        "ay": 3,
+    }
+    # Simulate flipped scrape orientation: goals already swapped, stats need swap.
+    _swap_stat_pairs(score)
+    upsert_score_result(conn, fx, score, source="flashscore")
+    conn.commit()
+    row = conn.execute(
+        "SELECT hs, as_shots, hst, ast, hc, ac, hy, ay FROM match_result"
+    ).fetchone()
+    assert row["hs"] == 21 and row["as_shots"] == 10
+    assert row["hst"] == 7 and row["ast"] == 1
+    assert row["hc"] == 2 and row["ac"] == 0
+    assert row["hy"] == 3 and row["ay"] == 2
+    conn.close()
+
+
+def test_persist_flashscore_rows_stores_match_id(tmp_path, monkeypatch):
+    from dg import config
+    from dg.report.score_hints import persist_flashscore_rows
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "mid.db")
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "home": "FC Copenhagen",
+                "away": "Nordsjaelland",
+                "fthg": 2,
+                "ftag": 0,
+                "league": "DENMARK: Superliga",
+                "match_id": "xA2hsg4F",
+                "day_offset": 0,
+            }
+        ],
+    )
+    row = conn.execute("SELECT match_id FROM flashscore_row").fetchone()
+    assert row["match_id"] == "xA2hsg4F"
     conn.close()

@@ -162,3 +162,52 @@ def test_market_lean_result_helper():
     assert market_lean_result("Over", "Over") == ("hit", "Hit")
     assert market_lean_result("Over", "Under") == ("miss", "Miss")
     assert market_lean_result("Over", None) == ("pending", "")
+
+
+def _base_result(**overrides):
+    row = {
+        "home_team_id": 10,
+        "away_team_id": 20,
+        "date": "2026-08-29",
+        "fthg": 2,
+        "ftag": 1,
+        "ftr": "H",
+        "hthg": None,
+        "htag": None,
+        "hs": None,
+        "as_shots": None,
+        "hst": None,
+        "ast": None,
+        "hc": None,
+        "ac": None,
+        "hy": None,
+        "ay": None,
+        "hr": None,
+        "ar": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_build_result_index_prefers_stats_regardless_of_order():
+    stats = _base_result(hc=5, ac=3, hs=12, as_shots=8, source="football-data.co.uk")
+    plain = _base_result(fthg=1, ftag=0, source="flashscore")
+    for rows in ([plain, stats], [stats, plain]):
+        index = build_result_index(rows)
+        chosen = index[(10, 20, "2026-08-29")]
+        assert chosen["hc"] == 5
+        assert chosen["hs"] == 12
+
+
+def test_build_result_index_keeps_incumbent_when_neither_has_stats():
+    first = _base_result(fthg=1, ftag=0, source="a")
+    second = _base_result(fthg=3, ftag=2, source="b")
+    index = build_result_index([first, second])
+    assert index[(10, 20, "2026-08-29")]["fthg"] == 1
+
+
+def test_build_result_index_stable_when_both_have_stats():
+    first = _base_result(hc=4, ac=2, fthg=1, ftag=0, source="a")
+    second = _base_result(hc=9, ac=1, fthg=2, ftag=2, source="b")
+    assert build_result_index([first, second])[(10, 20, "2026-08-29")]["hc"] == 4
+    assert build_result_index([second, first])[(10, 20, "2026-08-29")]["hc"] == 9
