@@ -6,7 +6,7 @@ import logging
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from dg.model.markets import DEFAULT_MARKET_LINES, extract_market_lines
+from dg.model.markets import DEFAULT_MARKET_LINES, extract_market_lines, markets_model_tag
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,8 @@ def _record_1x2_calibration(
     """Record a match_1x2 calibration cell from prediction lean vs result."""
     if calibration is None:
         return
-    from dg.features.matchup import book_lean as _book_lean, sim_lean as _sim_lean
+    from dg.features.matchup import book_lean as _book_lean
+    from dg.features.matchup import sim_lean as _sim_lean
     from dg.report.market_reliability import agreement_tier_from_market, prob_band_for
 
     if not lean or lean not in ("Home", "Draw", "Away"):
@@ -227,7 +228,12 @@ def _score_market_row(
             p = float(raw) if raw is not None else None
         except (TypeError, ValueError):
             p = None
-        band = prob_band_for(p) if p is not None else "no_prob"
+        band_src = m.get("prob_raw")
+        try:
+            p_band = float(band_src) if band_src is not None else p
+        except (TypeError, ValueError):
+            p_band = p
+        band = prob_band_for(p_band) if p_band is not None else "no_prob"
         if not band:
             band = "no_prob"
         tier = agreement_tier_from_market(m)
@@ -402,6 +408,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         ).fetchall()
     )
 
+    tag = markets_model_tag()
     rows = conn.execute(
         """
         SELECT
@@ -415,7 +422,10 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             WHERE fixture_id = f.fixture_id
             ORDER BY observed_at DESC LIMIT 1
         )
-        """
+        WHERE p.id IN (SELECT MAX(id) FROM prediction GROUP BY fixture_id)
+          AND p.model_version LIKE ?
+        """,
+        (f"%+{tag}",),
     ).fetchall()
 
     metrics: Dict[str, Dict[str, List[float]]] = {

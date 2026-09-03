@@ -16,7 +16,7 @@ from dg.ingest.ratings import ingest_ratings, team_ids_for_snapshot
 from dg.ingest.results import backfill_results
 from dg.model.evaluate import evaluate_joined
 from dg.model.rules import predict_upcoming
-from dg.model.supervised import fit_calibration, train_if_ready
+from dg.model.supervised import fit_calibration, fit_market_prob_calibration, train_if_ready
 from dg.quality.checks import QualityReport, run_quality_checks
 from dg.quality.doctor import run_doctor
 from dg.report.loaders import today_wat
@@ -271,6 +271,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
             stages["calibration_rows"] = store_market_calibration(conn, backtest)
             train_if_ready(conn)
+            from dg.model.registry import model_version
+
+            stages["market_prob_calibration"] = fit_market_prob_calibration(
+                conn, model_version=model_version()
+            ).get("n_markets", 0)
 
             md = render_report(
                 generated_at=generated_at,
@@ -355,6 +360,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         from dg.report.market_reliability import store_market_calibration
 
         store_market_calibration(conn, summary)
+        from dg.model.registry import model_version
+
+        fit_market_prob_calibration(conn, model_version=model_version())
         print(json.dumps(summary, indent=2))
         return config.EXIT_OK
 
@@ -374,6 +382,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         from dg.report.market_reliability import store_market_calibration
 
         store_market_calibration(conn, backtest)
+        from dg.model.registry import model_version
+
+        fit_market_prob_calibration(conn, model_version=model_version())
         md = render_report(
             generated_at=snap["generated_at"],
             snapshot_id=snapshot_id,
@@ -395,8 +406,9 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 
         mv = model_version()
         summary = fit_calibration(conn, model_version=mv)
-        print(json.dumps(summary, indent=2))
-        if summary.get("fitted"):
+        market = fit_market_prob_calibration(conn, model_version=mv)
+        print(json.dumps({"1x2": summary, "markets": market}, indent=2))
+        if summary.get("fitted") or market.get("fitted"):
             return config.EXIT_OK
         return config.EXIT_PARTIAL
 
@@ -421,6 +433,17 @@ def cmd_calibration_audit(args: argparse.Namespace) -> int:
         from dg.report.calibration_audit import calibration_ranking_audit
 
         summary = calibration_ranking_audit(conn, days=days)
+        print(json.dumps(summary, indent=2))
+        return config.EXIT_OK
+
+
+def cmd_market_audit(args: argparse.Namespace) -> int:
+    setup_logging(args.verbose)
+    init_db()
+    with db_session() as conn:
+        from dg.report.market_audit import market_probability_audit
+
+        summary = market_probability_audit(conn)
         print(json.dumps(summary, indent=2))
         return config.EXIT_OK
 
@@ -478,6 +501,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ca.add_argument("--days", type=int, default=90, help="Lookback window in days")
     ca.set_defaults(func=cmd_calibration_audit)
+
+    ma = sub.add_parser(
+        "market-audit",
+        help="Stated market % vs actual hit rate, AUC, and CV log-loss",
+    )
+    ma.set_defaults(func=cmd_market_audit)
 
     doc = sub.add_parser("doctor", help="Live feed contract checks")
     doc.set_defaults(func=cmd_doctor)

@@ -1,5 +1,5 @@
-# markets_v2 — core-line rules with Poisson goal probabilities as primary driver
-version: markets_v2
+# markets_v3 — P(lean) convention for all markets (direction fix for heuristic Unders)
+version: markets_v3
 
 confidence:
   high_abs_score_gte: 0.30

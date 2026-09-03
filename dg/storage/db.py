@@ -107,6 +107,29 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
             """
         )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_prob_calibration (
+            model_version TEXT NOT NULL,
+            market_key TEXT NOT NULL,
+            slope REAL NOT NULL,
+            intercept REAL NOT NULL,
+            base_rate REAL NOT NULL,
+            auc REAL,
+            auc_se REAL,
+            n_labels INTEGER NOT NULL,
+            n_weeks INTEGER NOT NULL,
+            fitted_at TEXT NOT NULL,
+            PRIMARY KEY (model_version, market_key)
+        )
+        """
+    )
+    mpc_cols = {
+        row[1] for row in c.execute("PRAGMA table_info(market_prob_calibration)").fetchall()
+    }
+    if mpc_cols and "auc_se" not in mpc_cols:
+        c.execute("ALTER TABLE market_prob_calibration ADD COLUMN auc_se REAL")
+
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     own = conn is None

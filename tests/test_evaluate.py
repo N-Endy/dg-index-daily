@@ -5,7 +5,12 @@ import json
 from typing import Optional
 
 from dg.model.evaluate import _market_labels, _record_1x2_calibration, evaluate_joined
+from dg.model.markets import markets_model_tag
 from dg.storage.db import connect, init_db
+
+
+def _live_model_version(prefix: str = "test_v1") -> str:
+    return f"{prefix}+{markets_model_tag()}"
 
 
 def test_market_labels_legacy_fallback():
@@ -45,12 +50,13 @@ def test_evaluate_hit_rate_arithmetic(tmp_path):
             fixture_id, snapshot_id, predicted_at, model_version,
             lean, confidence, score, drivers_json, markets_json, probs_json
         ) VALUES (
-            1, 1, '2026-01-01T00:00:00+00:00', 'test_v1',
+            1, 1, '2026-01-01T00:00:00+00:00', ?,
             'Home', 'high', 0.4, '[]',
             '{"goals_2_5":{"lean":"Over","confidence":"high","prob":0.7}}',
             '{"home":0.7,"draw":0.2,"away":0.1}'
         )
-        """
+        """,
+        (_live_model_version(),),
     )
     conn.execute(
         """
@@ -172,7 +178,9 @@ def _seed_fixture_prediction(
     date_utc: str = "2026-01-15T15:00:00+00:00",
     lean: str = "Home",
     markets_json: Optional[str] = '{"goals_2_5":{"lean":"Over","confidence":"high","prob":0.7}}',
+    model_version: Optional[str] = None,
 ) -> None:
+    mv = model_version or _live_model_version()
     conn.execute(
         """
         INSERT INTO dg_snapshot (generated_at, scraped_at, payload_sha256, n_teams)
@@ -194,11 +202,11 @@ def _seed_fixture_prediction(
             fixture_id, snapshot_id, predicted_at, model_version,
             lean, confidence, score, drivers_json, markets_json, probs_json
         ) VALUES (
-            ?, 1, '2026-01-01T00:00:00+00:00', 'test_v1',
+            ?, 1, '2026-01-01T00:00:00+00:00', ?,
             ?, 'high', 0.4, '[]', ?, '{"home":0.7,"draw":0.2,"away":0.1}'
         )
         """,
-        (fixture_id, lean, markets_json),
+        (fixture_id, mv, lean, markets_json),
     )
 
 
@@ -271,3 +279,75 @@ def test_evaluate_dd_mm_yyyy_matches_iso_fixture_day(tmp_path):
     conn.close()
     assert summary["n"] == 1
     assert summary["models"]["rule"]["hits"] == 1
+
+
+def test_evaluate_dedups_multiple_prediction_rows(tmp_path):
+    """A fixture with several prediction versions must count once."""
+    conn = connect(tmp_path / "dedup.db")
+    init_db(conn)
+    _seed_fixture_prediction(conn, date_utc="2026-04-01T15:00:00+00:00")
+    # Older stale-tag row (lower id) and a second live-tag row — only MAX(id) live row counts.
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, snapshot_id, predicted_at, model_version,
+            lean, confidence, score, drivers_json, markets_json, probs_json
+        ) VALUES (
+            1, 1, '2026-01-01T00:00:00+00:00', 'rule_v1_old+markets_v2_deadbeef00',
+            'Away', 'high', 0.4, '[]',
+            '{"goals_2_5":{"lean":"Under","confidence":"high","prob":0.7}}',
+            '{"home":0.2,"draw":0.2,"away":0.6}'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, snapshot_id, predicted_at, model_version,
+            lean, confidence, score, drivers_json, markets_json, probs_json
+        ) VALUES (
+            1, 1, '2026-01-02T00:00:00+00:00', ?,
+            'Home', 'high', 0.4, '[]',
+            '{"goals_2_5":{"lean":"Over","confidence":"high","prob":0.7}}',
+            '{"home":0.7,"draw":0.2,"away":0.1}'
+        )
+        """,
+        (_live_model_version("test_v2"),),
+    )
+    conn.execute(
+        """
+        INSERT INTO match_result (
+            source, season, league_code, date, home_name, away_name,
+            home_team_id, away_team_id, fthg, ftag, ftr
+        ) VALUES ('football-data.co.uk', '2627', 'T1', '01/04/2026', 'A', 'B', 10, 20, 2, 1, 'H')
+        """
+    )
+    conn.commit()
+    summary = evaluate_joined(conn)
+    conn.close()
+    assert summary["n"] == 1
+    assert summary["models"]["rule"]["n_graded"] == 1
+    assert summary["models"]["rule"]["hits"] == 1
+
+
+def test_evaluate_ignores_stale_markets_tag(tmp_path):
+    """Predictions stamped with an old markets tag are excluded from the backtest."""
+    conn = connect(tmp_path / "stale.db")
+    init_db(conn)
+    _seed_fixture_prediction(
+        conn,
+        date_utc="2026-04-02T15:00:00+00:00",
+        model_version="rule_v2_c3af37d5f1+markets_v2_2671c13b04",
+    )
+    conn.execute(
+        """
+        INSERT INTO match_result (
+            source, season, league_code, date, home_name, away_name,
+            home_team_id, away_team_id, fthg, ftag, ftr
+        ) VALUES ('football-data.co.uk', '2627', 'T1', '02/04/2026', 'A', 'B', 10, 20, 2, 1, 'H')
+        """
+    )
+    conn.commit()
+    summary = evaluate_joined(conn)
+    conn.close()
+    assert summary["n"] == 0

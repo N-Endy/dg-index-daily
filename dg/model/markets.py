@@ -1,6 +1,7 @@
 """Multi-market rule engines (goals, BTTS, FH, corners, shots, cards)."""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -177,6 +178,19 @@ def _lean_from_prob(p_pos: float, pos: str, neg: str) -> str:
     return pos if p_pos >= 0.5 else neg
 
 
+def _lean_side_prob(p_pos: Optional[float], lean: str, pos: str) -> Optional[float]:
+    """Convert P(positive side) into P(lean side)."""
+    if p_pos is None:
+        return None
+    p = min(0.98, max(0.02, float(p_pos)))
+    return p if lean == pos else 1.0 - p
+
+
+def _heuristic_p_pos(score: float) -> float:
+    """Linear score ramp used when no distributional model is available."""
+    return min(0.85, max(0.15, 0.5 + float(score) * 0.3))
+
+
 def _ou_from_odds(over: Any, under: Any) -> Optional[str]:
     try:
         o, u = float(over), float(under)
@@ -301,10 +315,12 @@ def predict_markets(
         },
         g_w,
     )
-    g_lean = _lean_from_prob(_num(p_over, 0.5), "Over", "Under") if p_over is not None else _binary_lean(g_score, "Over", "Under")
-    g_prob = float(p_over) if p_over is not None and g_lean == "Over" else (
-        (1.0 - float(p_over)) if p_over is not None else None
+    g_lean = (
+        _lean_from_prob(_num(p_over, 0.5), "Over", "Under")
+        if p_over is not None
+        else _binary_lean(g_score, "Over", "Under")
     )
+    g_p_pos = float(p_over) if p_over is not None else _heuristic_p_pos(g_score)
     out["goals_2_5"] = _pack(
         key="goals_2_5",
         label="Goals O/U 2.5",
@@ -314,12 +330,9 @@ def predict_markets(
         drivers=g_drv,
         dg_lean=_ou_from_pct(perc.get("over_2_5_pct")),
         book_lean=_ou_from_odds(book.get("over_2_5"), book.get("under_2_5")),
-        prob=g_prob if g_prob is not None else (0.5 + abs(g_score) * 0.25),
+        prob=_lean_side_prob(g_p_pos, g_lean, "Over"),
         line=2.5,
     )
-    # Attach probability of the lean side
-    if p_over is not None:
-        out["goals_2_5"]["prob"] = round(float(p_over) if g_lean == "Over" else 1.0 - float(p_over), 4)
 
     # --- Goals O/U 3.5 ---
     p_over35 = gp.get("over_3_5")
@@ -348,15 +361,13 @@ def predict_markets(
         drivers=g35_drv,
         dg_lean=_ou_from_pct(perc.get("over_3_5_pct")),
         book_lean=_ou_from_odds(book.get("over_3_5"), book.get("under_3_5")),
-        prob=None,
+        prob=_lean_side_prob(
+            float(p_over35) if p_over35 is not None else _heuristic_p_pos(g35_score),
+            g35_lean,
+            "Over",
+        ),
         line=3.5,
     )
-    if p_over35 is not None:
-        out["goals_3_5"]["prob"] = round(
-            float(p_over35) if g35_lean == "Over" else 1.0 - float(p_over35), 4
-        )
-    else:
-        out["goals_3_5"]["prob"] = round(min(0.85, max(0.15, 0.5 + g35_score * 0.3)), 4)
 
     # --- BTTS ---
     p_btts = gp.get("btts_yes")
@@ -381,7 +392,7 @@ def predict_markets(
         drivers=b_drv,
         dg_lean=("Yes" if _num(perc.get("btts_pct"), 50) >= 50 else "No") if perc.get("btts_pct") is not None else None,
         book_lean=_yn_from_odds(book.get("btts_yes"), book.get("btts_no")),
-        prob=(float(p_btts) if b_lean == "Yes" else 1.0 - float(p_btts)) if p_btts is not None else None,
+        prob=_lean_side_prob(float(p_btts) if p_btts is not None else None, b_lean, "Yes"),
     )
 
     # --- Team goals home O1.5 ---
@@ -408,7 +419,7 @@ def predict_markets(
         drivers=th_drv,
         dg_lean=_ou_from_pct(perc.get("home_o1_5_pct")),
         book_lean=None,
-        prob=(float(p_ho) if th_lean == "Over" else 1.0 - float(p_ho)) if p_ho is not None else None,
+        prob=_lean_side_prob(float(p_ho) if p_ho is not None else None, th_lean, "Over"),
         line=1.5,
     )
     if book.get("home_o1_5"):
@@ -441,7 +452,7 @@ def predict_markets(
         drivers=ta_drv,
         dg_lean=_ou_from_pct(perc.get("away_o1_5_pct")),
         book_lean=None,
-        prob=(float(p_ao) if ta_lean == "Over" else 1.0 - float(p_ao)) if p_ao is not None else None,
+        prob=_lean_side_prob(float(p_ao) if p_ao is not None else None, ta_lean, "Over"),
         line=1.5,
     )
     if book.get("away_o1_5"):
@@ -533,9 +544,9 @@ def predict_markets(
         confidence=_conf(fho_score, matchup, cfg),
         score=fho_score,
         drivers=fho_drv,
-        dg_lean="Over" if fh_xg_t >= 0.5 else ("Under" if fh_xg_t > 0 else None),
+        dg_lean="Over" if fh_xg_t >= math.log(2) else ("Under" if fh_xg_t > 0 else None),
         book_lean=fh_over_book,
-        prob=(float(p_fho) if fho_lean == "Over" else 1.0 - float(p_fho)) if p_fho is not None else None,
+        prob=_lean_side_prob(float(p_fho) if p_fho is not None else None, fho_lean, "Over"),
         line=0.5,
     )
 
@@ -551,16 +562,17 @@ def predict_markets(
         },
         c_w,
     )
+    c_lean = _binary_lean(c_score, "Over", "Under")
     out["corners_9_5"] = _pack(
         key="corners_9_5",
         label=f"Corners O/U {corners_line}",
-        lean=_binary_lean(c_score, "Over", "Under"),
+        lean=c_lean,
         confidence=_conf(c_score, matchup, cfg),
         score=c_score,
         drivers=c_drv,
         dg_lean=_ou_from_pct(corners_pct),
         book_lean=None,
-        prob=min(0.85, max(0.15, 0.5 + c_score * 0.3)),
+        prob=_lean_side_prob(_heuristic_p_pos(c_score), c_lean, "Over"),
         line=corners_line,
     )
 
@@ -575,16 +587,17 @@ def predict_markets(
         },
         s_w,
     )
+    s_lean = _binary_lean(s_score, "Over", "Under")
     out["shots_25_5"] = _pack(
         key="shots_25_5",
         label=f"Shots O/U {shots_line}",
-        lean=_binary_lean(s_score, "Over", "Under"),
+        lean=s_lean,
         confidence=_conf(s_score, matchup, cfg),
         score=s_score,
         drivers=s_drv,
         dg_lean=_ou_from_pct(shots_pct),
         book_lean=None,
-        prob=min(0.85, max(0.15, 0.5 + s_score * 0.3)),
+        prob=_lean_side_prob(_heuristic_p_pos(s_score), s_lean, "Over"),
         line=shots_line,
     )
 
@@ -600,16 +613,17 @@ def predict_markets(
         },
         so_w,
     )
+    so_lean = _binary_lean(so_score, "Over", "Under")
     out["sot_8_5"] = _pack(
         key="sot_8_5",
         label=f"SOT O/U {sot_line}",
-        lean=_binary_lean(so_score, "Over", "Under"),
+        lean=so_lean,
         confidence=_conf(so_score, matchup, cfg),
         score=so_score,
         drivers=so_drv,
         dg_lean=_ou_from_pct(sot_pct),
         book_lean=None,
-        prob=min(0.85, max(0.15, 0.5 + so_score * 0.3)),
+        prob=_lean_side_prob(_heuristic_p_pos(so_score), so_lean, "Over"),
         line=sot_line,
     )
 
@@ -625,16 +639,17 @@ def predict_markets(
         },
         cd_w,
     )
+    cd_lean = _binary_lean(cd_score, "Over", "Under")
     out["cards_3_5"] = _pack(
         key="cards_3_5",
         label=f"Cards O/U {cards_line}",
-        lean=_binary_lean(cd_score, "Over", "Under"),
+        lean=cd_lean,
         confidence=_conf(cd_score, matchup, cfg),
         score=cd_score,
         drivers=cd_drv,
         dg_lean=("Over" if cards_t >= cards_line else "Under") if cards_t else None,
         book_lean=None,
-        prob=min(0.85, max(0.15, 0.5 + cd_score * 0.3)),
+        prob=_lean_side_prob(_heuristic_p_pos(cd_score), cd_lean, "Over"),
         line=cards_line,
     )
 

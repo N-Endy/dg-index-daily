@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from functools import cmp_to_key
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from dg import config
 from dg.model.markets import MARKET_ORDER
@@ -24,7 +24,7 @@ from dg.web.plain_language import (
     probability_plain,
 )
 
-MIN_PROB = 0.65
+MIN_PROB = config.STRONGEST_MIN_PROB
 REQUIRED_CONF = "high"
 
 # Markets whose lean probability comes primarily from the Poisson goal model
@@ -44,6 +44,7 @@ POISSON_BACKED = frozenset(
 _AGREE_RANK = {"aligned": 2, "partial": 1, "unknown": 0, "split": -1}
 
 _market_hit_rates_cache: Optional[Dict[str, float]] = None
+_market_aucs_cache: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -130,6 +131,37 @@ def _passes_hard_gates(
     return True
 
 
+def _auc_ok(market_key: str, market_aucs: Optional[Dict[str, Any]]) -> bool:
+    """Exclude only markets shown, with confidence, to lack discrimination."""
+    if not market_aucs:
+        return True
+    rec = market_aucs.get(market_key)
+    if not rec:
+        return True
+    # Legacy bare-float callers: treat as powered point estimate.
+    if isinstance(rec, (int, float)):
+        return float(rec) >= float(config.STRONGEST_MIN_AUC)
+    if not isinstance(rec, dict):
+        return True
+    try:
+        n_labels = int(rec.get("n_labels") or 0)
+        n_weeks = int(rec.get("n_weeks") or 0)
+        auc = float(rec["auc"])
+    except (TypeError, ValueError, KeyError):
+        return True
+    if n_labels < int(config.STRONGEST_AUC_MIN_LABELS):
+        return True
+    if n_weeks < int(config.STRONGEST_AUC_MIN_WEEKS):
+        return True
+    se_raw = rec.get("auc_se")
+    try:
+        se = float(se_raw) if se_raw is not None else None
+    except (TypeError, ValueError):
+        se = None
+    upper = auc + 1.64 * se if se is not None else auc
+    return upper >= float(config.STRONGEST_MIN_AUC)
+
+
 def _rank_tuple(
     *,
     agreement_key: str,
@@ -196,7 +228,12 @@ def _sort_candidates(
     return sorted(candidates, key=cmp_to_key(_cmp))
 
 
-def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _candidate_from_market(
+    key: str,
+    m: Dict[str, Any],
+    *,
+    market_aucs: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     lean = m.get("lean")
     conf = m.get("confidence")
     prob = _as_float(m.get("prob"))
@@ -210,10 +247,15 @@ def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, An
         book_lean=book_lean,
     ):
         return None
+    if not _auc_ok(key, market_aucs):
+        return None
     assert lean is not None and prob is not None
     agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
     score = _as_float(m.get("score"))
     drivers = list(m.get("drivers") or [])
+    prob_raw = _as_float(m.get("prob_raw"))
+    if prob_raw is None:
+        prob_raw = prob
     return {
         "market_key": key,
         "market_label": market_chip_label(key, m.get("label"), line=m.get("line")),
@@ -222,6 +264,7 @@ def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, An
         "confidence": (conf or "").lower(),
         "confidence_blurb": confidence_blurb(conf),
         "prob": prob,
+        "prob_raw": prob_raw,
         "prob_plain": probability_plain(prob),
         "score": score,
         "drivers": drivers,
@@ -242,7 +285,12 @@ def _candidate_from_market(key: str, m: Dict[str, Any]) -> Optional[Dict[str, An
     }
 
 
-def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _candidate_1x2(
+    pred: Dict[str, Any],
+    probs: Dict[str, Any],
+    *,
+    market_aucs: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     lean = pred.get("lean")
     conf = pred.get("confidence")
     prob = _lean_prob_1x2(pred, probs)
@@ -255,6 +303,8 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
         dg_lean=dg_lean,
         book_lean=book_lean,
     ):
+        return None
+    if not _auc_ok("match_1x2", market_aucs):
         return None
     assert lean is not None and prob is not None
     agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
@@ -271,6 +321,7 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
         "confidence": (conf or "").lower(),
         "confidence_blurb": confidence_blurb(conf),
         "prob": prob,
+        "prob_raw": prob,
         "prob_plain": probability_plain(prob),
         "score": score,
         "drivers": drivers,
@@ -291,19 +342,23 @@ def _candidate_1x2(pred: Dict[str, Any], probs: Dict[str, Any]) -> Optional[Dict
     }
 
 
-def collect_gate_passing_candidates(pred: Dict[str, Any]) -> List[Dict[str, Any]]:
+def collect_gate_passing_candidates(
+    pred: Dict[str, Any],
+    *,
+    market_aucs: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """All markets + 1X2 that clear the Strongest hard gates for a fixture."""
     markets = _markets_dict(pred)
     probs = _probs_dict(pred)
     candidates: List[Dict[str, Any]] = []
-    one_x2 = _candidate_1x2(pred, probs)
+    one_x2 = _candidate_1x2(pred, probs, market_aucs=market_aucs)
     if one_x2:
         candidates.append(one_x2)
     for key in MARKET_ORDER:
         m = markets.get(key)
         if not isinstance(m, dict):
             continue
-        cand = _candidate_from_market(key, m)
+        cand = _candidate_from_market(key, m, market_aucs=market_aucs)
         if cand:
             candidates.append(cand)
     return candidates
@@ -379,8 +434,20 @@ def get_market_hit_rates(conn) -> Dict[str, float]:
 
 
 def clear_market_hit_rates_cache() -> None:
-    global _market_hit_rates_cache
+    global _market_hit_rates_cache, _market_aucs_cache
     _market_hit_rates_cache = None
+    _market_aucs_cache = None
+
+
+def get_market_aucs(conn) -> Dict[str, Dict[str, Any]]:
+    """Load cached per-market AUC records for Strongest discrimination gating."""
+    global _market_aucs_cache
+    if _market_aucs_cache is not None:
+        return _market_aucs_cache
+    from dg.model.supervised import load_market_aucs
+
+    _market_aucs_cache = load_market_aucs(conn)
+    return _market_aucs_cache
 
 
 def select_top_n_candidates(
@@ -388,9 +455,10 @@ def select_top_n_candidates(
     n: int = 3,
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
+    market_aucs: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Return up to n gate-passing candidates for a fixture, best first."""
-    raw = collect_gate_passing_candidates(pred)
+    raw = collect_gate_passing_candidates(pred, market_aucs=market_aucs)
     if not raw:
         return []
     ranked = _sort_candidates(raw, market_hit_rates=market_hit_rates)
@@ -402,12 +470,15 @@ def select_strongest_lean(
     pred: Dict[str, Any],
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
+    market_aucs: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Pick at most one conservative lean for a fixture from all markets + 1X2.
     Returns None when nothing clears the high bar.
     """
-    picks = select_top_n_candidates(pred, 1, market_hit_rates=market_hit_rates)
+    picks = select_top_n_candidates(
+        pred, 1, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+    )
     if not picks:
         return None
     out = picks[0]
@@ -418,11 +489,14 @@ def build_strongest_picks(
     predictions: List[Dict[str, Any]],
     *,
     market_hit_rates: Optional[Dict[str, float]] = None,
+    market_aucs: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Select and rank strongest leans across fixtures (strongest first)."""
     picks: List[Dict[str, Any]] = []
     for pred in predictions:
-        pick = select_strongest_lean(pred, market_hit_rates=market_hit_rates)
+        pick = select_strongest_lean(
+            pred, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+        )
         if pick:
             picks.append(pick)
     picks.sort(key=lambda p: p.get("_rank", (0, 0, 0, 0.0, 0.0)), reverse=True)
@@ -436,6 +510,7 @@ def build_ai_vet_fixture_groups(
     *,
     top_n: Optional[int] = None,
     market_hit_rates: Optional[Dict[str, float]] = None,
+    market_aucs: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Group top-N gate-passing candidates per fixture for LLM market selection.
@@ -444,7 +519,9 @@ def build_ai_vet_fixture_groups(
     n = int(top_n if top_n is not None else config.AI_VET_TOP_N)
     groups: List[Dict[str, Any]] = []
     for pred in predictions:
-        cands = select_top_n_candidates(pred, n, market_hit_rates=market_hit_rates)
+        cands = select_top_n_candidates(
+            pred, n, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+        )
         if not cands:
             continue
         for c in cands:
@@ -485,12 +562,15 @@ def load_strongest_day(*, date: Optional[str] = None) -> Dict[str, Any]:
         scoreboard = recent_strongest_performance(conn)
         selection_audit = selection_regret_audit(conn)
         market_hit_rates = None
+        market_aucs = get_market_aucs(conn)
         if config.STRONGEST_USE_MARKET_HIT_RATES:
             market_hit_rates = get_market_hit_rates(conn)
     finally:
         conn.close()
     enriched = [enrich_prediction_for_display(p) for p in ctx["predictions"]]
-    picks = build_strongest_picks(enriched, market_hit_rates=market_hit_rates)
+    picks = build_strongest_picks(
+        enriched, market_hit_rates=market_hit_rates, market_aucs=market_aucs
+    )
     picks.sort(key=_fixture_sort_key)
     return {
         **ctx,

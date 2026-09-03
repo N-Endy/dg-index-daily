@@ -66,7 +66,7 @@ Short plain-English reasons pulled from the biggest contributors to the score �
 
 ### Markets (chips)
 
-Besides the match winner lean, each fixture shows **core market lines** (still rule-based, not trained). Goals-related chips use the goal model percentage; corners / shots / cards stay style-driven:
+Besides the match winner lean, each fixture shows **core market lines** (still rule-based, not trained). The percentage on a chip is the **probability of that lean**, not of Over/Yes by default. After enough graded history it is a **calibrated expected hit rate**; until then it is the model output (Poisson for goals/BTTS/FH, a clamped style ramp for corners/shots/SOT/cards). Goals-related chips use the goal model; corners / shots / cards stay style-driven:
 
 | Chip | Meaning |
 |------|---------|
@@ -143,7 +143,7 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 6. Compare **Our lean** with **DG model** and **Book** — agreement is a soft green flag, not a guarantee.
 7. Click **Technical details** only if you want the model version and raw contribution scores.
 
-The filter URL is shareable — copy the address bar after Apply to send someone the same shortlist. Note that corners / shots / cards probabilities are **heuristic** (style-driven), while goals and BTTS percentages come from the goal model.
+The filter URL is shareable — copy the address bar after Apply to send someone the same shortlist. Chip percentages are **P(lean)** (Over and Under both show the chance of that side). After `dg backtest` / `dg calibrate` they are pulled toward measured hit rates. Corners / shots / cards remain a style ramp until that history exists. Run `dg market-audit` to see stated % vs actual hits and whether a market is rank-worthy for Strongest.
 
 ## What “stale” means
 

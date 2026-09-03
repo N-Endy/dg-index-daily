@@ -109,3 +109,59 @@ def test_market_labels_from_result():
     assert labels["shots_25_5"] == "Over"
     assert labels["sot_8_5"] == "Over"
     assert labels["cards_3_5"] == "Under"
+
+
+def test_lean_side_prob_flips_negative_side():
+    from dg.model.markets import _lean_side_prob
+
+    assert abs(_lean_side_prob(0.34, "Under", "Over") - 0.66) < 1e-9
+    assert _lean_side_prob(0.72, "Over", "Over") == 0.72
+    assert _lean_side_prob(None, "Under", "Over") is None
+
+
+def test_heuristic_under_lean_stores_p_lean_not_p_over():
+    out = predict_markets(_base_matchup(pace_clash=40.0, nec_sum=40.0))
+    for key in ("corners_9_5", "shots_25_5", "sot_8_5"):
+        assert out[key]["lean"] == "Under"
+        assert out[key]["prob"] is not None
+        assert out[key]["prob"] > 0.5
+
+
+def test_heuristic_over_lean_prob_above_half():
+    out = predict_markets(
+        _base_matchup(pace_clash=160.0, nec_sum=160.0, agix_sum=160.0, pressing_intensity=2.0)
+    )
+    for key in ("corners_9_5", "shots_25_5", "sot_8_5", "cards_3_5"):
+        assert out[key]["lean"] == "Over"
+        assert 0.15 <= out[key]["prob"] <= 0.85
+
+
+def test_goals_fallback_clamped_and_lean_side():
+    quiet = predict_markets(_base_matchup(pace_clash=40.0, nec_sum=40.0))
+    assert quiet["goals_2_5"]["prob"] <= 0.85
+    assert quiet["goals_2_5"]["prob"] >= 0.15
+    if quiet["goals_2_5"]["lean"] == "Under":
+        assert quiet["goals_2_5"]["prob"] >= 0.5
+    wild = predict_markets(_base_matchup(pace_clash=180.0, nec_sum=180.0))
+    assert wild["goals_2_5"]["prob"] <= 0.85
+    assert wild["goals_3_5"]["prob"] <= 0.85
+
+
+def test_poisson_under_prob_is_complement():
+    gp = {
+        "over_2_5": 0.35,
+        "under_2_5": 0.65,
+        "over_3_5": 0.20,
+        "btts_yes": 0.40,
+        "home_over_1_5": 0.30,
+        "away_over_1_5": 0.25,
+        "fh_over_0_5": 0.40,
+        "fh_home": 0.3,
+        "fh_draw": 0.4,
+        "fh_away": 0.3,
+    }
+    out = predict_markets(_base_matchup(), goal_probs=gp)
+    assert out["goals_2_5"]["lean"] == "Under"
+    assert abs(out["goals_2_5"]["prob"] - 0.65) < 1e-6
+    assert out["btts"]["lean"] == "No"
+    assert abs(out["btts"]["prob"] - 0.60) < 1e-6

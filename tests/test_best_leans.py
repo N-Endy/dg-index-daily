@@ -1,6 +1,7 @@
 """Unit tests for strongest-lean selection."""
 from __future__ import annotations
 
+from dg import config
 from dg.report.best_leans import (
     MIN_PROB,
     build_strongest_picks,
@@ -378,3 +379,102 @@ def test_collect_gate_passing_candidates_count():
         }
     )
     assert len(collect_gate_passing_candidates(pred)) == 1
+
+
+def test_heuristic_under_can_clear_gate():
+    pred = _base_pred(
+        markets={
+            "corners_9_5": {
+                "lean": "Under",
+                "confidence": "high",
+                "score": -0.6,
+                "prob": 0.68,
+                "dg_lean": "Under",
+                "book_lean": "Under",
+            }
+        }
+    )
+    pick = select_strongest_lean(pred)
+    assert pick is not None
+    assert pick["market_key"] == "corners_9_5"
+    assert pick["lean"] == "Under"
+    assert pick["prob"] == 0.68
+
+
+def test_low_auc_market_excluded_from_strongest(monkeypatch):
+    monkeypatch.setattr(config, "STRONGEST_AUC_MIN_LABELS", 300)
+    monkeypatch.setattr(config, "STRONGEST_AUC_MIN_WEEKS", 8)
+    monkeypatch.setattr(config, "STRONGEST_MIN_AUC", 0.55)
+    pred = _base_pred(
+        markets={
+            "corners_9_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.72,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    # Under-powered: low AUC must still pass (gate dormant).
+    underpowered = {
+        "corners_9_5": {
+            "auc": 0.40,
+            "auc_se": 0.02,
+            "n_labels": 50,
+            "n_weeks": 2,
+        }
+    }
+    pick = select_strongest_lean(pred, market_aucs=underpowered)
+    assert pick is not None
+    assert pick["market_key"] == "corners_9_5"
+
+    # Powered + tight SE below bar: excluded.
+    powered_low = {
+        "corners_9_5": {
+            "auc": 0.40,
+            "auc_se": 0.02,
+            "n_labels": 400,
+            "n_weeks": 10,
+        }
+    }
+    assert select_strongest_lean(pred, market_aucs=powered_low) is None
+
+    # Powered + upper bound clears bar: passes (0.52 + 1.64*0.05 = 0.602).
+    powered_borderline = {
+        "corners_9_5": {
+            "auc": 0.52,
+            "auc_se": 0.05,
+            "n_labels": 400,
+            "n_weeks": 10,
+        }
+    }
+    pick = select_strongest_lean(pred, market_aucs=powered_borderline)
+    assert pick is not None
+    assert pick["market_key"] == "corners_9_5"
+
+    # Market absent from the table: passes.
+    pick = select_strongest_lean(pred, market_aucs={"goals_2_5": powered_low["corners_9_5"]})
+    assert pick is not None
+    assert pick["market_key"] == "corners_9_5"
+
+
+def test_candidate_carries_prob_raw():
+    pred = _base_pred(
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.66,
+                "prob_raw": 0.91,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    pick = select_strongest_lean(pred)
+    assert pick is not None
+    assert pick["prob"] == 0.66
+    assert pick["prob_raw"] == 0.91

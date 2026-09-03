@@ -188,10 +188,21 @@ STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
     "STRONGEST_USE_MARKET_HIT_RATES", "0"
 ).strip().lower() in ("1", "true", "yes")
 STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
+STRONGEST_MIN_PROB = float(os.environ.get("STRONGEST_MIN_PROB", "0.65"))
+STRONGEST_MIN_AUC = float(os.environ.get("STRONGEST_MIN_AUC", "0.55"))
+STRONGEST_AUC_MIN_LABELS = int(os.environ.get("STRONGEST_AUC_MIN_LABELS", "300"))
+STRONGEST_AUC_MIN_WEEKS = int(os.environ.get("STRONGEST_AUC_MIN_WEEKS", "8"))
 
 # Market calibration for AI publish estimates
 MARKET_CALIBRATION_SHRINKAGE = float(os.environ.get("MARKET_CALIBRATION_SHRINKAGE", "50"))
 MARKET_CALIBRATION_DEFAULT_RATE = float(os.environ.get("MARKET_CALIBRATION_DEFAULT_RATE", "0.50"))
+
+# Per-market probability calibration (dashboard / Strongest displayed %)
+MARKET_PROB_CALIBRATION_ENABLED = os.environ.get(
+    "MARKET_PROB_CALIBRATION_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes")
+MARKET_PROB_CALIBRATION_MIN_FIT = int(os.environ.get("MARKET_PROB_CALIBRATION_MIN_FIT", "80"))
+MARKET_PROB_CALIBRATION_MIN_WEEKS = int(os.environ.get("MARKET_PROB_CALIBRATION_MIN_WEEKS", "4"))
 
 # SQLite (web + batch jobs share one file on Railway volume)
 SQLITE_BUSY_TIMEOUT_SEC = float(os.environ.get("SQLITE_BUSY_TIMEOUT_SEC", "30"))

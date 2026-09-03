@@ -170,6 +170,10 @@ def predict_fixture(
         matchup["sim_xg_away"] = proj["sim_xg_away"]
 
     markets = predict_markets(matchup, book=book, sim=sim, goal_probs=goal_probs)
+    from dg.model.supervised import apply_market_prob_calibration, load_market_prob_calibration
+
+    calib_params = load_market_prob_calibration(conn, model_version=version)
+    markets = apply_market_prob_calibration(markets, calib_params)
 
     probs_out = {
         "home": round(blended["home"], 4),

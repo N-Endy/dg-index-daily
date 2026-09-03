@@ -14,6 +14,7 @@ from dg.report.best_leans import (
     build_ai_vet_fixture_groups,
     build_strongest_picks,
     flatten_vet_groups,
+    get_market_aucs,
     get_market_hit_rates,
     load_strongest_day,
 )
@@ -354,7 +355,10 @@ def _finalize_score_for_candidate(
 
     tier = agreement_tier_from_candidate(cand)
     reli = reliability_for(
-        calibration, cand.get("market_key"), tier, cand.get("prob")
+        calibration,
+        cand.get("market_key"),
+        tier,
+        cand.get("prob_raw") if cand.get("prob_raw") is not None else cand.get("prob"),
     )
     components = score_row.get("components")
     if isinstance(components, dict) and score_row.get("score_source") == "components":
@@ -650,23 +654,27 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
 def _build_vet_context(day_key: str) -> Dict[str, Any]:
     ctx = load_strongest_day(date=day_key)
     market_hit_rates = None
-    if config.STRONGEST_USE_MARKET_HIT_RATES:
-        from dg.report.loaders import get_connection
+    market_aucs: Optional[Dict[str, Any]] = None
+    from dg.report.loaders import get_connection
 
-        conn = get_connection()
-        try:
+    conn = get_connection()
+    try:
+        market_aucs = get_market_aucs(conn)
+        if config.STRONGEST_USE_MARKET_HIT_RATES:
             market_hit_rates = get_market_hit_rates(conn)
-        finally:
-            conn.close()
+    finally:
+        conn.close()
     groups = build_ai_vet_fixture_groups(
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
+        market_aucs=market_aucs,
     )
     ctx["vet_groups"] = groups
     ctx["vet_candidates"] = flatten_vet_groups(groups)
     ctx["fallback_picks"] = ctx.get("picks") or build_strongest_picks(
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
+        market_aucs=market_aucs,
     )
     return ctx
 

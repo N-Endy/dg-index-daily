@@ -258,3 +258,17 @@ CREATE TABLE IF NOT EXISTS market_calibration (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (market_key, agreement_tier, prob_band)
 );
+
+CREATE TABLE IF NOT EXISTS market_prob_calibration (
+    model_version TEXT NOT NULL,
+    market_key TEXT NOT NULL,
+    slope REAL NOT NULL,
+    intercept REAL NOT NULL,
+    base_rate REAL NOT NULL,
+    auc REAL,
+    auc_se REAL,
+    n_labels INTEGER NOT NULL,
+    n_weeks INTEGER NOT NULL,
+    fitted_at TEXT NOT NULL,
+    PRIMARY KEY (model_version, market_key)
+);

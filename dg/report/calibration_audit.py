@@ -92,7 +92,10 @@ def calibration_ranking_audit(conn, *, days: int = 90) -> Dict[str, Any]:
                 continue
             tier = agreement_tier_from_candidate(cand)
             reli = reliability_for(
-                calib, cand.get("market_key"), tier, cand.get("prob")
+                calib,
+                cand.get("market_key"),
+                tier,
+                cand.get("prob_raw") if cand.get("prob_raw") is not None else cand.get("prob"),
             )
             # Neutral coherence (mid) for historical replay — no LLM screen available.
             est = compute_publish_score(

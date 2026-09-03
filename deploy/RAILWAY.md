@@ -63,11 +63,18 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | `AI_VET_MIN_SCORE` | `55` | Minimum estimated hit chance (%) to publish |
 | `MARKET_CALIBRATION_SHRINKAGE` | `50` | Empirical-Bayes weight toward parent rates for thin buckets |
 | `MARKET_CALIBRATION_DEFAULT_RATE` | `0.50` | Fallback base rate when no calibration rows exist |
+| `MARKET_PROB_CALIBRATION_ENABLED` | `1` | Calibrate dashboard market `%` from graded history |
+| `MARKET_PROB_CALIBRATION_MIN_FIT` | `80` | Min samples before logit Platt is used (else shrink to base rate) |
+| `MARKET_PROB_CALIBRATION_MIN_WEEKS` | `4` | Min distinct matchweeks before logit Platt is used |
+| `STRONGEST_MIN_PROB` | `0.65` | Hard probability floor for a Strongest lean |
+| `STRONGEST_MIN_AUC` | `0.55` | Exclude a market from Strongest only when its AUC upper bound is below this |
+| `STRONGEST_AUC_MIN_LABELS` | `300` | Min graded samples before the AUC gate may exclude a market |
+| `STRONGEST_AUC_MIN_WEEKS` | `8` | Min distinct matchweeks before the AUC gate may exclude a market |
 | `STRONGEST_POISSON_PROB_EPSILON` | `0.03` | Prefer higher prob over Poisson tie-break when gap ≥ this |
 | `STRONGEST_USE_MARKET_HIT_RATES` | `0` | Use backtest hit rates as ranking tie-break |
 | `STRONGEST_MARKET_HIT_MIN_GRADED` | `100` | Min samples per market before hit rate applies |
 
-Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate.
+Run `python -m dg.cli selection-audit` to measure selection regret vs oracle hit rate. Run `python -m dg.cli market-audit` to compare stated market percentages with actual hit rates (AUC and cross-validated log-loss vs a constant).
 
 **AI Picks:** after predictions on the match schedule, `vet-ai-picks` screens top-N gate-passing candidates per fixture via an OpenAI-compatible API. The LLM returns coherence/concerns; the published **Est.%** is a measured hit rate keyed by market × source agreement × probability band (with shrinkage), adjusted by that screen — **not** the model lean percentage. Run `dg calibration-audit` to check ranking vs actual hits. Without `OPENAI_API_KEY`, that step is skipped and `/ai-picks` explains setup. Fixture ingest warnings make `run_daily.py` exit `1` (partial); `cron_matches.sh` still runs AI vet and backfill unless the daily run exits `2` (critical).
 

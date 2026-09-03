@@ -12,6 +12,8 @@ build/
 # Local data
 data/dg.db
 data/dg.db-*
+data/dg.sqlite
+data/dg.sqlite-*
 data/raw/
 data/reports/
 data/logs/
