@@ -47,6 +47,20 @@
   </p>
 </div>
 
+{% if board_note and board_note.note %}
+<article class="status-card board-note rail-fade" aria-label="Board note">
+  <p class="eyebrow">Board note</p>
+  <p class="lede">{{ board_note.note }}</p>
+  {% if board_note.themes %}
+  <ul class="baselines">
+    {% for t in board_note.themes %}
+    <li>{{ t }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</article>
+{% endif %}
+
 <div class="strip-list strongest-list">
   {% for p in picks %}
   <article class="fixture-strip conf-{{ p.confidence or 'high' }} strip-enter strongest-card" style="--i: {{ loop.index0 }}">
@@ -84,6 +98,9 @@
 
       {% if p.ai_reason %}
       <p class="strength"><strong>AI note:</strong> {{ p.ai_reason }}</p>
+      {% endif %}
+      {% if p.ai_risk %}
+      <p class="strength"><strong>Risk:</strong> {{ p.ai_risk }}</p>
       {% endif %}
       {% if p.ai_base_rate is defined or p.ai_components %}
       <p class="strength" title="Measured market hit rate adjusted by the AI screen">

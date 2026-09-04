@@ -4,11 +4,14 @@ from __future__ import annotations
 import json
 
 from dg.ai.vet_strongest import (
+    build_board_envelope,
     compute_publish_score,
     fixture_group_payload,
     gate_screen_scores,
+    load_board_note,
     parse_screen_response,
     replace_ai_picks_for_day,
+    replace_board_note_for_day,
     vet_strongest_for_day,
 )
 from dg.storage.db import connect, init_db
@@ -306,6 +309,7 @@ def test_parse_component_response():
                     "verdict": "publish",
                     "coherence": 2,
                     "concerns": ["thin book"],
+                    "risk": "Late equaliser risk if game opens up.",
                     "reason": "Aligned over with solid drivers.",
                 }
             ]
@@ -320,6 +324,7 @@ def test_parse_component_response():
     assert rows[0]["components"]["coherence"] == 2
     assert "agreement" not in rows[0]["components"]
     assert "thin book" in rows[0]["concerns"]
+    assert rows[0]["risk"] == "Late equaliser risk if game opens up."
 
 
 def test_single_source_ranks_below_two_source():
@@ -382,9 +387,30 @@ def test_fixture_group_payload_shuffles_deterministically():
         "league": "EPL",
         "date_utc": "2026-08-30T15:00:00+00:00",
         "candidates": [
-            {"fixture_id": 42, "market_key": "match_1x2", "lean": "Home", "prob": 0.7},
-            {"fixture_id": 42, "market_key": "goals_2_5", "lean": "Over", "prob": 0.8},
-            {"fixture_id": 42, "market_key": "btts", "lean": "Yes", "prob": 0.75},
+            {
+                "fixture_id": 42,
+                "market_key": "match_1x2",
+                "lean": "Home",
+                "prob": 0.7,
+                "agreement_key": "aligned",
+                "agreement_n_sources": 2,
+            },
+            {
+                "fixture_id": 42,
+                "market_key": "goals_2_5",
+                "lean": "Over",
+                "prob": 0.8,
+                "agreement_key": "aligned",
+                "agreement_n_sources": 2,
+            },
+            {
+                "fixture_id": 42,
+                "market_key": "btts",
+                "lean": "Yes",
+                "prob": 0.75,
+                "agreement_key": "aligned",
+                "agreement_n_sources": 2,
+            },
         ],
     }
     a = fixture_group_payload(group)
@@ -395,6 +421,10 @@ def test_fixture_group_payload_shuffles_deterministically():
     assert set(keys_a) == {"match_1x2", "goals_2_5", "btts"}
     assert "minScoreHint" not in a
     assert "prob" in a["candidates"][0]
+    assert "baseRate" in a["candidates"][0]
+    assert "baseN" in a["candidates"][0]
+    assert "projectedEst" in a["candidates"][0]
+    assert isinstance(a["candidates"][0]["projectedEst"], int)
 
 
 def test_vet_batches_candidates(tmp_path, monkeypatch):
@@ -406,6 +436,7 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_BATCH_SIZE", 2)
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
     monkeypatch.setattr(
@@ -414,11 +445,19 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
         lambda date=None: _vet_ctx(4),
     )
     calls = {"n": 0}
+    boards = []
 
     def fake_chat(system, user):
         calls["n"] += 1
         assert "minScoreHint" not in user
         assert "0-100" in system or "coherence" in system.lower()
+        payload = json.loads(user.split("\n", 1)[-1])
+        assert "board" in payload
+        boards.append(payload["board"])
+        for fx in payload["fixtures"]:
+            for c in fx["candidates"]:
+                assert "baseRate" in c
+                assert "projectedEst" in c
         fids = [1, 2] if calls["n"] == 1 else [3, 4]
         return json.dumps(
             {
@@ -445,6 +484,8 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     assert summary["written"] == 4
     assert summary["n_flat_score_fallback"] == 0
     assert "echo_rate" in summary
+    assert boards[0] == boards[1]
+    assert boards[0]["totalFixtures"] == 4
     conn.close()
 
 
@@ -715,6 +756,7 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
     vet_day = {
@@ -781,6 +823,7 @@ def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
     monkeypatch.setattr(
@@ -832,6 +875,7 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
     pred = {
@@ -902,4 +946,318 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
 
     picks = load_ai_picks(conn, "2026-08-30")
     assert picks[0]["market_key"] == "btts"
+    conn.close()
+
+
+def _gate_market(lean: str, prob: float = 0.70) -> dict:
+    return {
+        "lean": lean,
+        "confidence": "high",
+        "score": 0.2,
+        "prob": prob,
+        "dg_lean": lean,
+        "book_lean": lean,
+    }
+
+
+def test_candidate_payload_uses_calibration_base_rate():
+    from dg.ai.vet_strongest import candidate_payload
+    from dg.report.market_reliability import reliability_for
+
+    calib = _calib_dict()
+    pick = {
+        "fixture_id": 1,
+        "market_key": "goals_2_5",
+        "lean": "Over",
+        "prob": 0.92,
+        "agreement_key": "aligned",
+        "agreement_n_sources": 2,
+        "why": ["pace"],
+    }
+    payload = candidate_payload(pick, calibration=calib)
+    reli = reliability_for(calib, "goals_2_5", "agree2", 0.92)
+    assert payload["baseRate"] == round(float(reli["rate"]), 3)
+    assert payload["baseN"] == int(reli.get("n") or 0)
+    assert payload["projectedEst"] == compute_publish_score(
+        base_rate=float(reli["rate"]), coherence=2
+    )
+
+
+def test_build_board_envelope_deterministic():
+    groups = [{"fixture_id": 1}, {"fixture_id": 2}]
+    candidates = [
+        {"market_key": "goals_2_5"},
+        {"market_key": "btts"},
+        {"market_key": "goals_2_5"},
+    ]
+    env = {
+        "gpm_recent": 3.1,
+        "gpm_baseline": 2.6,
+        "stretched": True,
+        "caution": "hot",
+    }
+    sb = {"hit_rate": 0.55, "n_graded": 40, "window_days": 30}
+    a = build_board_envelope(groups, candidates, scoring_env=env, ai_scoreboard=sb)
+    b = build_board_envelope(groups, candidates, scoring_env=env, ai_scoreboard=sb)
+    assert a == b
+    assert a["totalFixtures"] == 2
+    assert a["marketMix"] == {"btts": 1, "goals_2_5": 2}
+    assert a["scoringEnv"]["stretched"] is True
+    assert a["recentAiHitRate"]["nGraded"] == 40
+
+
+def test_ai_vet_max_candidates_widens_pool(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_MAX_CANDIDATES", 6)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
+    config.ensure_dirs()
+
+    pred = {
+        **_vet_prediction(50),
+        "markets": {
+            "goals_2_5": _gate_market("Over", 0.72),
+            "goals_3_5": _gate_market("Over", 0.68),
+            "btts": _gate_market("Yes", 0.71),
+            "fh_over_0_5": _gate_market("Over", 0.88),
+            "team_goals_home_1_5": _gate_market("Over", 0.70),
+            "team_goals_away_1_5": _gate_market("Over", 0.69),
+        },
+    }
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [pred],
+            "picks": [],
+            "empty": False,
+            "scoring_env": {},
+        },
+    )
+
+    seen = {"n": 0}
+
+    def fake_chat(system, user):
+        seen["n"] += 1
+        payload = json.loads(user.split("\n", 1)[-1])
+        assert len(payload["fixtures"][0]["candidates"]) == 6
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 50,
+                        "marketKey": "match_1x2",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "ok",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 50)
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["n_candidates"] == 6
+    assert seen["n"] == 1
+    conn.close()
+
+
+def test_board_note_persists_and_risk_round_trips(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+    from dg.report.ai_picks import load_ai_picks_page
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", True)
+    config.ensure_dirs()
+
+    vet_day = {
+        "day": "2026-08-30",
+        "predictions": [_vet_prediction(11)],
+        "picks": [],
+        "empty": False,
+        "scoring_env": {
+            "gpm_recent": 3.0,
+            "gpm_baseline": 2.5,
+            "stretched": True,
+            "caution": "hot scoring",
+        },
+    }
+    monkeypatch.setattr(vs, "load_strongest_day", lambda date=None: vet_day)
+
+    def fake_chat(system, user):
+        if "board note" in system.lower():
+            return json.dumps(
+                {
+                    "note": "A selective board with one home lean.",
+                    "themes": ["home lean"],
+                }
+            )
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 11,
+                        "marketKey": "match_1x2",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "risk": "Away counter could spoil it.",
+                        "reason": "Aligned home lean.",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 11)
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["written"] == 1
+    assert summary["board_note_written"] == 1
+    assert summary["board_note_error"] is None
+
+    note = load_board_note(conn, "2026-08-30")
+    assert note is not None
+    assert "selective board" in note["note"]
+    assert "home lean" in note["themes"]
+
+    from dg.ai.vet_strongest import load_ai_picks
+
+    picks = load_ai_picks(conn, "2026-08-30")
+    assert picks[0]["ai_risk"] == "Away counter could spoil it."
+    # Est.% still comes from base rate × judgment, not from risk text.
+    expected = compute_publish_score(base_rate=float(picks[0]["ai_base_rate"]), coherence=3)
+    assert picks[0]["ai_score"] == expected
+    conn.close()
+
+    page = load_ai_picks_page(day="2026-08-30")
+    assert page["board_note"]["note"]
+    assert page["picks"][0]["ai_risk"] == "Away counter could spoil it."
+
+
+def test_board_note_failure_preserves_picks(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", True)
+    config.ensure_dirs()
+
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [_vet_prediction(12)],
+            "picks": [],
+            "empty": False,
+            "scoring_env": {},
+        },
+    )
+
+    def fake_chat(system, user):
+        if "board note" in system.lower():
+            raise RuntimeError("board note boom")
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 12,
+                        "marketKey": "match_1x2",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "ok",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 12)
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["written"] == 1
+    assert summary["errors"] == 0
+    assert summary["board_note_written"] == 0
+    assert "boom" in (summary["board_note_error"] or "")
+    assert load_board_note(conn, "2026-08-30") is None
+
+    from dg.ai.vet_strongest import load_ai_picks
+
+    assert len(load_ai_picks(conn, "2026-08-30")) == 1
+    conn.close()
+
+
+def test_gate_risk_does_not_change_est_score():
+    cands = [
+        {
+            "fixture_id": 1,
+            "market_key": "goals_2_5",
+            "lean": "Over",
+            "prob": 0.92,
+            "agreement_key": "aligned",
+            "agreement_n_sources": 2,
+            "league": "EPL",
+            "home_name": "A",
+            "away_name": "B",
+            "date_utc": "2026-08-30T15:00:00+00:00",
+        }
+    ]
+    scores = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "risk": "Anything dramatic",
+                        "reason": "ok",
+                    }
+                ]
+            }
+        )
+    )
+    approved = gate_screen_scores(cands, scores, min_score=40, calibration=_calib_dict())
+    assert len(approved) == 1
+    assert approved[0]["ai_risk"] == "Anything dramatic"
+    assert approved[0]["ai_score"] == compute_publish_score(
+        base_rate=float(approved[0]["ai_base_rate"]), coherence=3
+    )
+
+
+def test_replace_board_note_clears_on_empty(tmp_path, monkeypatch):
+    from dg import config
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    config.ensure_dirs()
+    conn = init_db(connect(config.DB_PATH))
+    assert replace_board_note_for_day(
+        conn, "2026-08-30", note="Hello", themes=["a"], model="test"
+    ) == 1
+    assert load_board_note(conn, "2026-08-30")["note"] == "Hello"
+    assert replace_board_note_for_day(
+        conn, "2026-08-30", note="", themes=[], model="test"
+    ) == 0
+    assert load_board_note(conn, "2026-08-30") is None
     conn.close()

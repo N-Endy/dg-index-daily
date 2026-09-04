@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from dg import config
-from dg.ai.vet_strongest import load_ai_picks
+from dg.ai.vet_strongest import load_ai_picks, load_board_note
 from dg.report.loaders import (
     get_connection,
     load_dashboard_context,
@@ -24,6 +24,7 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
     conn = get_connection()
     try:
         picks = load_ai_picks(conn, day_key)
+        board_note = load_board_note(conn, day_key)
         from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
         from dg.report.scoring_env import load_scoring_environment
 
@@ -65,7 +66,8 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
         "has_openai_key": has_key,
         "ai_min_score": config.AI_VET_MIN_SCORE,
         "ai_model": config.OPENAI_MODEL,
-        "ai_top_n": config.AI_VET_TOP_N,
+        "ai_top_n": config.AI_VET_MAX_CANDIDATES,
+        "board_note": board_note,
         "page_empty": empty_db or not picks,
         "message": message,
         "ai_scoreboard": ai_scoreboard,

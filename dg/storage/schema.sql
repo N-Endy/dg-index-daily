@@ -222,6 +222,14 @@ CREATE TABLE IF NOT EXISTS ai_pick (
 
 CREATE INDEX IF NOT EXISTS idx_ai_pick_day ON ai_pick(day);
 
+CREATE TABLE IF NOT EXISTS ai_board_note (
+    day TEXT PRIMARY KEY,
+    note TEXT NOT NULL,
+    themes_json TEXT,
+    model TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS flashscore_row (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scraped_at TEXT NOT NULL,

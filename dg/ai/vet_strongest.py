@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -35,18 +36,36 @@ SYSTEM_PROMPT = (
     "from a rule-based ratings model (DataGaffer DG Index). "
     "For each fixture you may see multiple market candidates that already passed hard gates. "
     "Pick at most ONE candidate per fixture to publish (or none). "
-    "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style). "
+    "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style, "
+    "baseRate, projectedEst, and the board summary). "
+    "baseRate is the measured historical landing rate for that market × agreement × probability "
+    "bucket; projectedEst is an approximate publish estimate at neutral coherence. "
+    "Picking a low-baseRate candidate will usually fail to publish regardless of coherence — "
+    "prefer candidates whose projectedEst clears the publish bar when the story is otherwise equal. "
+    "Use the board summary (market mix, scoring environment, recent AI hit rate) to avoid "
+    "over-concentrating on one market type when the environment argues against it. "
     "Do not invent stats, injuries, lineups, or odds. "
     "Do NOT return a numeric 0-100 score — estimated publish chance is computed downstream from "
     "measured market hit rates (keyed by source agreement) plus your coherence judgment. "
     "For the chosen candidate set: "
     "verdict='publish' or 'skip'; "
     "coherence 0-3 (do drivers and match style support this market and direction); "
-    "concerns as a short string list of red flags (each will reduce the estimate). "
+    "concerns as a short string list of red flags (each will reduce the estimate); "
+    "risk as one short sentence for the single biggest thing that could go wrong (display only). "
     "Respond with JSON only: "
     '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","verdict":"publish",'
     '"coherence":0-3,'
-    '"concerns":["optional flag"],"reason":"one short plain sentence"}]}.'
+    '"concerns":["optional flag"],"risk":"optional one-liner",'
+    '"reason":"one short plain sentence"}]}.'
+)
+
+BOARD_NOTE_SYSTEM_PROMPT = (
+    "You write a short board note for a football analytics dashboard. "
+    "Summarize the published AI picks for the day in 1-3 plain sentences. "
+    "Mention market-mix themes and any scoring-environment caution if relevant. "
+    "Do not invent fixtures, change percentages, or add injuries/lineups. "
+    "Respond with JSON only: "
+    '{"note":"1-3 sentences","themes":["short theme"]}.'
 )
 
 
@@ -140,8 +159,25 @@ def model_strength_band(prob: Any) -> float:
     return 0.25
 
 
-def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
+def candidate_payload(
+    pick: Dict[str, Any],
+    *,
+    calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    from dg.report.market_reliability import (
+        agreement_tier_from_candidate,
+        reliability_for,
+    )
+
     why = list(pick.get("why") or [])[:4]
+    tier = agreement_tier_from_candidate(pick)
+    reli = reliability_for(
+        calibration,
+        pick.get("market_key"),
+        tier,
+        pick.get("prob_raw") if pick.get("prob_raw") is not None else pick.get("prob"),
+    )
+    base_rate = float(reli["rate"])
     return {
         "fixtureId": pick.get("fixture_id"),
         "marketKey": pick.get("market_key"),
@@ -161,10 +197,17 @@ def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
         "strength": pick.get("strength_label"),
         "style": pick.get("style_label"),
         "why": why,
+        "baseRate": round(base_rate, 3),
+        "baseN": int(reli.get("n") or 0),
+        "projectedEst": compute_publish_score(base_rate=base_rate, coherence=2),
     }
 
 
-def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
+def fixture_group_payload(
+    group: Dict[str, Any],
+    *,
+    calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Build fixture JSON; shuffle candidates with a fixture-seeded RNG."""
     candidates = list(group.get("candidates") or [])
     fid = group.get("fixture_id")
@@ -181,7 +224,38 @@ def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
         "awayTeam": group.get("away_name"),
         "league": group.get("league_display") or group.get("league"),
         "kickoff": group.get("kickoff_display") or group.get("date_utc"),
-        "candidates": [candidate_payload(c) for c in shuffled],
+        "candidates": [
+            candidate_payload(c, calibration=calibration) for c in shuffled
+        ],
+    }
+
+
+def build_board_envelope(
+    groups: List[Dict[str, Any]],
+    candidates: List[Dict[str, Any]],
+    *,
+    scoring_env: Optional[Dict[str, Any]] = None,
+    ai_scoreboard: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Deterministic day-level context shared across all vet batches."""
+    mix = Counter(str(c.get("market_key") or "") for c in candidates)
+    mix.pop("", None)
+    env = scoring_env or {}
+    sb = ai_scoreboard or {}
+    return {
+        "totalFixtures": len(groups),
+        "marketMix": dict(sorted(mix.items())),
+        "scoringEnv": {
+            "gpmRecent": env.get("gpm_recent"),
+            "gpmBaseline": env.get("gpm_baseline"),
+            "stretched": bool(env.get("stretched")),
+            "caution": env.get("caution"),
+        },
+        "recentAiHitRate": {
+            "hitRate": sb.get("hit_rate"),
+            "nGraded": sb.get("n_graded"),
+            "windowDays": sb.get("window_days"),
+        },
     }
 
 
@@ -219,6 +293,13 @@ def _parse_concerns(raw: Any) -> List[str]:
         if text:
             out.append(text[:120])
     return out[:8]
+
+
+def _parse_risk(raw: Any) -> str:
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    return text[:240] if text else ""
 
 
 def _parse_verdict_approve(row: Dict[str, Any]) -> Tuple[bool, bool]:
@@ -293,6 +374,7 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
 
         approve_b, _ = _parse_verdict_approve(row)
         concerns = _parse_concerns(row.get("concerns", row.get("Concerns")))
+        risk = _parse_risk(row.get("risk", row.get("Risk")))
 
         components: Optional[Dict[str, Any]] = None
         score_source = "flat"
@@ -330,6 +412,7 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
                 "score": int(score_i),
                 "approve": approve_b,
                 "reason": str(reason).strip()[:512],
+                "risk": risk,
                 "score_source": score_source,
                 "components": components,
                 "concerns": concerns,
@@ -449,6 +532,7 @@ def gate_screen_scores(
             **cand,
             "ai_score": final_score,
             "ai_reason": s.get("reason") or "",
+            "ai_risk": s.get("risk") or "",
             "ai_approve": True,
             "ai_score_source": score_source,
             "ai_components": components,
@@ -547,6 +631,128 @@ def replace_ai_picks_for_day(
     return n
 
 
+def replace_board_note_for_day(
+    conn,
+    day: str,
+    *,
+    note: str,
+    themes: Optional[List[str]] = None,
+    model: str,
+) -> int:
+    """Replace the day board note. Empty note clears the row. Returns 1 if written."""
+    conn.execute("DELETE FROM ai_board_note WHERE day = ?", (day,))
+    text = (note or "").strip()
+    if not text:
+        conn.commit()
+        return 0
+    theme_list = [str(t).strip()[:80] for t in (themes or []) if str(t).strip()][:8]
+    conn.execute(
+        """
+        INSERT INTO ai_board_note (day, note, themes_json, model, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            day,
+            text[:1200],
+            json.dumps(theme_list),
+            model,
+            _utcnow_iso(),
+        ),
+    )
+    conn.commit()
+    return 1
+
+
+def load_board_note(conn, day: str) -> Optional[Dict[str, Any]]:
+    """Load the stored board note for a WAT day, or None."""
+    row = conn.execute(
+        """
+        SELECT day, note, themes_json, model, created_at
+        FROM ai_board_note
+        WHERE day = ?
+        """,
+        (day,),
+    ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        themes = json.loads(d.get("themes_json") or "[]")
+    except json.JSONDecodeError:
+        themes = []
+    if not isinstance(themes, list):
+        themes = []
+    return {
+        "day": d.get("day"),
+        "note": d.get("note") or "",
+        "themes": [str(t) for t in themes if str(t).strip()],
+        "model": d.get("model"),
+        "created_at": d.get("created_at"),
+    }
+
+
+def build_board_note(
+    approved: List[Dict[str, Any]],
+    *,
+    day: str,
+    scoring_env: Optional[Dict[str, Any]] = None,
+    chat_fn=None,
+) -> Dict[str, Any]:
+    """
+    Ask the LLM for a short day-level note over already-approved picks.
+    Returns {"note": str, "themes": list}. Never raises on parse failure.
+    """
+    env = scoring_env or {}
+    picks_payload = [
+        {
+            "fixtureId": p.get("fixture_id"),
+            "league": p.get("league_display") or p.get("league"),
+            "homeTeam": p.get("home_name"),
+            "awayTeam": p.get("away_name"),
+            "market": p.get("market_label") or p.get("market_key"),
+            "lean": p.get("lean_plain") or p.get("lean"),
+            "estPct": p.get("ai_score"),
+            "risk": p.get("ai_risk") or "",
+        }
+        for p in approved
+    ]
+    payload = {
+        "day": day,
+        "nPicks": len(approved),
+        "scoringEnv": {
+            "gpmRecent": env.get("gpm_recent"),
+            "gpmBaseline": env.get("gpm_baseline"),
+            "stretched": bool(env.get("stretched")),
+            "caution": env.get("caution"),
+        },
+        "picks": picks_payload,
+    }
+    user = (
+        f"Write a board note for {day} covering the published AI picks below. "
+        f"JSON only.\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+    if chat_fn is not None:
+        raw = chat_fn(BOARD_NOTE_SYSTEM_PROMPT, user)
+    else:
+        raw = chat_json(
+            system=BOARD_NOTE_SYSTEM_PROMPT,
+            user=user,
+            max_tokens=config.AI_VET_BOARD_NOTE_MAX_TOKENS,
+        )
+    data = _extract_json_object(raw)
+    note = str(data.get("note") or data.get("Note") or "").strip()[:1200]
+    themes_raw = data.get("themes", data.get("Themes")) or []
+    themes: List[str] = []
+    if isinstance(themes_raw, list):
+        for item in themes_raw:
+            text = str(item or "").strip()
+            if text:
+                themes.append(text[:80])
+    elif isinstance(themes_raw, str) and themes_raw.strip():
+        themes.append(themes_raw.strip()[:80])
+    return {"note": note, "themes": themes[:8]}
+
+
 def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
     from dg.leagues import attach_league_display
     from dg.report.results_attach import attach_result_to_prediction, load_result_index
@@ -619,6 +825,7 @@ def load_ai_picks(conn, day: str) -> List[Dict[str, Any]]:
 
         payload["ai_score"] = d["score"]
         payload["ai_reason"] = d.get("reason") or payload.get("ai_reason") or ""
+        payload["ai_risk"] = payload.get("ai_risk") or ""
         payload["ai_model"] = d.get("model")
         payload["ai_day"] = d.get("day")
         if payload.get("ai_base_rate") is not None:
@@ -656,17 +863,24 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
     market_hit_rates = None
     market_aucs: Optional[Dict[str, Any]] = None
     scoring_env = ctx.get("scoring_env")
+    calibration: Dict[Any, Dict[str, Any]] = {}
+    ai_scoreboard: Dict[str, Any] = {}
     from dg.report.loaders import get_connection
+    from dg.report.market_reliability import load_market_calibration
+    from dg.report.scoreboard import recent_ai_performance
 
     conn = get_connection()
     try:
         market_aucs = get_market_aucs(conn)
         if config.STRONGEST_USE_MARKET_HIT_RATES:
             market_hit_rates = get_market_hit_rates(conn)
+        calibration = load_market_calibration(conn)
+        ai_scoreboard = recent_ai_performance(conn)
     finally:
         conn.close()
     groups = build_ai_vet_fixture_groups(
         ctx.get("predictions") or [],
+        top_n=config.AI_VET_MAX_CANDIDATES,
         market_hit_rates=market_hit_rates,
         market_aucs=market_aucs,
         scoring_env=scoring_env,
@@ -679,6 +893,8 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
         market_aucs=market_aucs,
         scoring_env=scoring_env,
     )
+    ctx["calibration"] = calibration
+    ctx["ai_scoreboard"] = ai_scoreboard
     return ctx
 
 
@@ -713,6 +929,8 @@ def vet_strongest_for_day(
         "score_median": None,
         "score_max": None,
         "n_flat_score_fallback": 0,
+        "board_note_written": 0,
+        "board_note_error": None,
     }
 
     if not config.OPENAI_API_KEY and chat_fn is None:
@@ -724,11 +942,20 @@ def vet_strongest_for_day(
     ctx = _build_vet_context(day_key)
     groups = list(ctx.get("vet_groups") or [])
     candidates = list(ctx.get("vet_candidates") or [])
+    calibration = ctx.get("calibration") or {}
+    scoring_env = ctx.get("scoring_env")
+    board = build_board_envelope(
+        groups,
+        candidates,
+        scoring_env=scoring_env,
+        ai_scoreboard=ctx.get("ai_scoreboard"),
+    )
     summary["n_fixtures"] = len(groups)
     summary["n_candidates"] = len(candidates)
     if not groups:
         summary["skipped_no_candidates"] = True
         replace_ai_picks_for_day(conn, day_key, [], model=model)
+        replace_board_note_for_day(conn, day_key, note="", themes=[], model=model)
         summary["message"] = "No strongest picks to vet"
         return summary
 
@@ -736,22 +963,22 @@ def vet_strongest_for_day(
     summary["n_batches"] = len(batches)
     all_scores: List[Dict[str, Any]] = []
 
-    from dg.report.market_reliability import load_market_calibration
-
-    calibration = load_market_calibration(conn)
-
     try:
         for bi, batch in enumerate(batches, start=1):
             payload = {
                 "day": day_key,
                 "batch": bi,
                 "batchCount": len(batches),
-                "fixtures": [fixture_group_payload(g) for g in batch],
+                "board": board,
+                "fixtures": [
+                    fixture_group_payload(g, calibration=calibration) for g in batch
+                ],
             }
             user = (
                 f"For each fixture below, pick at most one market candidate to publish "
                 f"for {day_key} (batch {bi}/{len(batches)}). "
-                f"Return component judgments (coherence, concerns, verdict). "
+                f"Return component judgments (coherence, concerns, risk, verdict). "
+                f"Use the board summary to avoid over-concentrating on one market type. "
                 f"Use verdict=skip or omit fixtures you would not publish. "
                 f"Do not return a 0-100 score. Be selective.\n"
                 f"{json.dumps(payload, ensure_ascii=False)}"
@@ -783,6 +1010,28 @@ def vet_strongest_for_day(
         summary["n_approved"] = len(approved)
         summary["written"] = written
         summary.update(_score_telemetry(approved))
+
+        if config.AI_VET_BOARD_NOTE and approved:
+            try:
+                note_data = build_board_note(
+                    approved,
+                    day=day_key,
+                    scoring_env=scoring_env,
+                    chat_fn=chat_fn,
+                )
+                summary["board_note_written"] = replace_board_note_for_day(
+                    conn,
+                    day_key,
+                    note=note_data.get("note") or "",
+                    themes=note_data.get("themes") or [],
+                    model=model,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("AI board note failed (picks preserved): %s", exc)
+                summary["board_note_error"] = str(exc)
+        else:
+            replace_board_note_for_day(conn, day_key, note="", themes=[], model=model)
+
         summary["message"] = (
             f"Approved {written} of {len(groups)} fixtures ({len(candidates)} candidates)"
         )
