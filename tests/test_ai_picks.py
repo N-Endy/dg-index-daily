@@ -437,6 +437,7 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_VET_BATCH_SIZE", 2)
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
     monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
+    monkeypatch.setattr(config, "STRONGEST_DIVERSIFY_ENABLED", False)
     config.ensure_dirs()
 
     monkeypatch.setattr(
@@ -1260,4 +1261,60 @@ def test_replace_board_note_clears_on_empty(tmp_path, monkeypatch):
         conn, "2026-08-30", note="", themes=[], model="test"
     ) == 0
     assert load_board_note(conn, "2026-08-30") is None
+    conn.close()
+
+
+def test_ai_soft_fallback_keeps_best_below_bar(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+    from dg.ai.vet_strongest import load_ai_picks
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 80)
+    monkeypatch.setattr(config, "AI_VET_SOFT_FALLBACK", True)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
+    monkeypatch.setattr(config, "STRONGEST_DIVERSIFY_ENABLED", False)
+    config.ensure_dirs()
+
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [_vet_prediction(21)],
+            "picks": [],
+            "empty": False,
+            "scoring_env": {},
+        },
+    )
+
+    def fake_chat(system, user):
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 21,
+                        "marketKey": "match_1x2",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "best of a thin set",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 21)
+    # Base rate ~0.55 → Est.% around mid-50s, below 80 floor.
+    _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["soft_fallback"] is True
+    assert summary["written"] == 1
+    picks = load_ai_picks(conn, "2026-08-30")
+    assert len(picks) == 1
+    assert picks[0]["ai_score"] < 80
+    assert "below bar" in (picks[0].get("ai_reason") or "")
     conn.close()

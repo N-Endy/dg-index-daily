@@ -41,6 +41,19 @@ POISSON_BACKED = frozenset(
     }
 )
 
+# Markets that count toward the day-level Over-family diversification cap.
+OVER_FAMILY_MARKETS = frozenset(
+    {
+        "goals_2_5",
+        "goals_3_5",
+        "btts",
+        "fh_over_0_5",
+        "team_goals_home_1_5",
+        "team_goals_away_1_5",
+    }
+)
+OVER_FAMILY_LEANS = frozenset({"Over", "Yes"})
+
 _AGREE_RANK = {"aligned": 2, "partial": 1, "unknown": 0, "split": -1}
 
 _market_hit_rates_cache: Optional[Dict[str, float]] = None
@@ -202,10 +215,7 @@ def _better_candidate(
         return ra[0] > rb[0]
     if ra[1] != rb[1]:
         return ra[1] > rb[1]
-    pa, pb = ra[3], rb[3]
-    epsilon = config.STRONGEST_POISSON_PROB_EPSILON
-    if abs(pa - pb) >= epsilon:
-        return pa > pb
+    # Prefer historically stronger markets before raw stated probability.
     if market_hit_rates:
         mka = str(a.get("market_key") or "")
         mkb = str(b.get("market_key") or "")
@@ -213,6 +223,10 @@ def _better_candidate(
         hrb = _market_hit_rate(mkb, market_hit_rates)
         if abs(hra - hrb) >= 0.01:
             return hra > hrb
+    pa, pb = ra[3], rb[3]
+    epsilon = config.STRONGEST_POISSON_PROB_EPSILON
+    if abs(pa - pb) >= epsilon:
+        return pa > pb
     if ra[2] != rb[2]:
         return ra[2] > rb[2]
     if ra[3] != rb[3]:
@@ -511,6 +525,36 @@ def select_strongest_lean(
     return out
 
 
+def diversify_day_picks(picks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Greedily keep ranked picks while capping same-market and Over-family share.
+    Always keeps at least one pick when the input is non-empty.
+    """
+    if not picks or not config.STRONGEST_DIVERSIFY_ENABLED:
+        return picks
+    n = len(picks)
+    if n <= 1:
+        return picks
+    max_same = max(1, int(n * float(config.STRONGEST_MAX_SAME_MARKET_SHARE)))
+    max_over = max(1, int(n * float(config.STRONGEST_MAX_OVER_FAMILY_SHARE)))
+    kept: List[Dict[str, Any]] = []
+    by_market: Dict[str, int] = {}
+    over_n = 0
+    for p in picks:
+        mk = str(p.get("market_key") or "")
+        lean = str(p.get("lean") or "").strip()
+        is_over = mk in OVER_FAMILY_MARKETS and lean in OVER_FAMILY_LEANS
+        if by_market.get(mk, 0) >= max_same:
+            continue
+        if is_over and over_n >= max_over:
+            continue
+        kept.append(p)
+        by_market[mk] = by_market.get(mk, 0) + 1
+        if is_over:
+            over_n += 1
+    return kept if kept else picks[:1]
+
+
 def build_strongest_picks(
     predictions: List[Dict[str, Any]],
     *,
@@ -532,7 +576,7 @@ def build_strongest_picks(
     picks.sort(key=lambda p: p.get("_rank", (0, 0, 0, 0.0, 0.0)), reverse=True)
     for p in picks:
         p.pop("_rank", None)
-    return picks
+    return diversify_day_picks(picks)
 
 
 def build_ai_vet_fixture_groups(

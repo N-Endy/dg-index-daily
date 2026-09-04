@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from dg import config
 from dg.report.best_leans import select_strongest_lean
 from dg.report.scoring_env import compute_scoring_environment, over_market_prob_bump
@@ -169,3 +171,23 @@ def test_cool_env_keeps_normal_floors(monkeypatch):
     cool = {"stretched": False, "over_prob_bump": 0.0, "caution": None}
     pred = _base_pred("goals_2_5", lean="Over", prob=0.66)
     assert select_strongest_lean(pred, scoring_env=cool) is not None
+
+
+def test_apply_scoring_env_dampens_over_probs(monkeypatch):
+    from dg.report.scoring_env import apply_scoring_env_to_markets
+
+    monkeypatch.setattr(config, "SCORING_ENV_DAMPEN_ENABLED", True)
+    monkeypatch.setattr(config, "SCORING_ENV_OVER_PROB_DAMPEN", 0.90)
+    markets = {
+        "version": "t",
+        "goals_2_5": {"lean": "Over", "prob": 0.70, "confidence": "high"},
+        "goals_3_5": {"lean": "Under", "prob": 0.60, "confidence": "high"},
+        "corners_9_5": {"lean": "Over", "prob": 0.70, "confidence": "high"},
+    }
+    hot = {"stretched": True, "over_prob_dampen": 0.90}
+    out = apply_scoring_env_to_markets(markets, hot)
+    assert out["goals_2_5"]["prob"] == pytest.approx(0.63)
+    assert out["goals_2_5"]["prob_raw"] == pytest.approx(0.70)
+    assert out["goals_2_5"]["scoring_env_dampened"] is True
+    assert out["goals_3_5"]["prob"] == 0.60
+    assert out["corners_9_5"]["prob"] == 0.70

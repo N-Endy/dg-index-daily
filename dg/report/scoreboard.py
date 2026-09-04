@@ -12,6 +12,10 @@ from dg.report.results_attach import attach_result_to_prediction, load_result_in
 
 def recent_strongest_performance(conn, *, days: int = 30) -> Dict[str, Any]:
     """Replay stored predictions through select_strongest_lean and grade them."""
+    from dg.report.best_leans import get_market_aucs, get_market_hit_rates
+    from dg.report.scoring_env import load_scoring_environment
+    from dg import config
+
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = conn.execute(
         """
@@ -28,6 +32,9 @@ def recent_strongest_performance(conn, *, days: int = 30) -> Dict[str, Any]:
     ).fetchall()
 
     result_index = load_result_index(conn)
+    scoring_env = load_scoring_environment(conn)
+    market_aucs = get_market_aucs(conn)
+    market_hit_rates = get_market_hit_rates(conn) if config.STRONGEST_USE_MARKET_HIT_RATES else None
     n_graded = 0
     n_hits = 0
     by_market: Dict[str, Dict[str, int]] = {}
@@ -44,7 +51,12 @@ def recent_strongest_performance(conn, *, days: int = 30) -> Dict[str, Any]:
         if not d.get("completed"):
             continue
         enriched = enrich_prediction_for_display(d)
-        pick = select_strongest_lean(enriched)
+        pick = select_strongest_lean(
+            enriched,
+            market_hit_rates=market_hit_rates,
+            market_aucs=market_aucs,
+            scoring_env=scoring_env,
+        )
         if not pick:
             continue
         rk = pick.get("lean_result_key")

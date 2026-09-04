@@ -64,6 +64,7 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | `AI_VET_BOARD_NOTE` | `1` | Second LLM call writes a day-level board note |
 | `AI_VET_BOARD_NOTE_MAX_TOKENS` | `600` | Token cap for the board-note call |
 | `AI_VET_MIN_SCORE` | `55` | Minimum estimated hit chance (%) to publish |
+| `AI_VET_SOFT_FALLBACK` | `1` | Keep one best-available pick when all publishes fail the Est.% floor |
 | `MARKET_CALIBRATION_SHRINKAGE` | `50` | Empirical-Bayes weight toward parent rates for thin buckets |
 | `MARKET_CALIBRATION_DEFAULT_RATE` | `0.50` | Fallback base rate when no calibration rows exist |
 | `MARKET_PROB_CALIBRATION_ENABLED` | `1` | Calibrate dashboard market `%` from graded history |
@@ -75,12 +76,17 @@ Remove obsolete `CRON_HOUR_UTC` if it is still set on the service.
 | `SCORING_ENV_BASELINE_DAYS` | `90` | Baseline GPM window |
 | `SCORING_ENV_STRETCH_RATIO` | `1.12` | Hot if recent/baseline ≥ this |
 | `SCORING_ENV_OVER_PROB_BUMP` | `0.05` | Extra Strongest min-prob for Overs when hot |
+| `SCORING_ENV_OVER_PROB_DAMPEN` | `0.92` | Multiply Over/Yes stated dashboard probs when hot |
+| `SCORING_ENV_DAMPEN_ENABLED` | `1` | Enable stated-prob dampening when scoring env is stretched |
 | `STRONGEST_MIN_AUC` | `0.55` | Exclude a market from Strongest only when its AUC upper bound is below this |
 | `STRONGEST_AUC_MIN_LABELS` | `300` | Min graded samples before the AUC gate may exclude a market |
 | `STRONGEST_AUC_MIN_WEEKS` | `8` | Min distinct matchweeks before the AUC gate may exclude a market |
 | `STRONGEST_POISSON_PROB_EPSILON` | `0.03` | Prefer higher prob over Poisson tie-break when gap ≥ this |
-| `STRONGEST_USE_MARKET_HIT_RATES` | `0` | Use backtest hit rates as ranking tie-break |
+| `STRONGEST_USE_MARKET_HIT_RATES` | `1` | Prefer markets with higher backtest hit rates when ranking |
 | `STRONGEST_MARKET_HIT_MIN_GRADED` | `100` | Min samples per market before hit rate applies |
+| `STRONGEST_DIVERSIFY_ENABLED` | `1` | Cap same-market / Over-family share on Strongest and AI days |
+| `STRONGEST_MAX_SAME_MARKET_SHARE` | `0.40` | Max fraction of day picks with the same market key |
+| `STRONGEST_MAX_OVER_FAMILY_SHARE` | `0.65` | Max fraction of day picks that are Over/Yes goals markets |
 | `FLASHSCORE_STATS_ENABLED` | `1` | Fetch Flashscore `?t=stats` after score sync |
 | `FLASHSCORE_STATS_MAX_MATCHES` | `40` | Cap on match stats pages per `sync-match-stats` run |
 | `FLASHSCORE_STATS_DELAY_SEC` | `1.0` | Sleep between stats page fetches |

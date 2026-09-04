@@ -186,3 +186,37 @@ def test_plain_language_helpers():
     assert s is not None
     assert "Arsenal" in s and "2.37" in s
     assert "edge" in s or "matched" in s
+
+
+def test_sim_xg_blend_pulls_lambda_toward_match_projection():
+    base = {
+        "home_ortg": 1.2,
+        "home_drtg": 1.2,
+        "away_ortg": 1.2,
+        "away_drtg": 1.2,
+        "home_coef": 1.0,
+        "away_coef": 1.0,
+    }
+    lh0, la0 = expected_goals(base, league_avg=1.35, cfg={
+        "home_advantage": 1.0,
+        "xg_blend_weight": 0.0,
+        "sim_xg_blend_weight": 0.0,
+        "min_lambda": 0.15,
+        "max_lambda": 4.5,
+        "default_league_avg": 1.35,
+    })
+    blended = {
+        **base,
+        "sim_xg_home": 2.4,
+        "sim_xg_away": 0.6,
+    }
+    lh1, la1 = expected_goals(blended, league_avg=1.35, cfg={
+        "home_advantage": 1.0,
+        "xg_blend_weight": 0.0,
+        "sim_xg_blend_weight": 0.5,
+        "min_lambda": 0.15,
+        "max_lambda": 4.5,
+        "default_league_avg": 1.35,
+    })
+    assert lh1 > lh0
+    assert la1 < la0

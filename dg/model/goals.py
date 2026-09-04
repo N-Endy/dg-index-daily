@@ -94,6 +94,16 @@ def expected_goals(
 
     lam_h = (home_att / L) * (away_def / L) * L * home_adv * coef
     lam_a = (away_att / L) * (home_def / L) * L * coef
+
+    # Optional blend toward match-level DG sim xG (when present on the matchup).
+    sim_w = float(cfg.get("sim_xg_blend_weight", 0.0))
+    sim_h = _num(matchup.get("sim_xg_home"))
+    sim_a = _num(matchup.get("sim_xg_away"))
+    if sim_w > 0 and sim_h > 0.05:
+        lam_h = (1.0 - sim_w) * lam_h + sim_w * sim_h
+    if sim_w > 0 and sim_a > 0.05:
+        lam_a = (1.0 - sim_w) * lam_a + sim_w * sim_a
+
     return max(mn, min(mx, lam_h)), max(mn, min(mx, lam_a))
 
 

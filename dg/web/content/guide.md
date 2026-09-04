@@ -66,7 +66,7 @@ Short plain-English reasons pulled from the biggest contributors to the score �
 
 ### Markets (chips)
 
-Besides the match winner lean, each fixture shows **core market lines** (still rule-based, not trained). The percentage on a chip is the **probability of that lean**, not of Over/Yes by default. After enough graded history it is a **calibrated expected hit rate**; until then it is the model output (Poisson for goals/BTTS/FH, a clamped style ramp for corners/shots/SOT/cards). Goals-related chips use the goal model; corners / shots / cards stay style-driven:
+Besides the match winner lean, each fixture shows **core market lines** (still rule-based, not trained). The percentage on a chip is the **probability of that lean**, not of Over/Yes by default. After enough graded history it is a **calibrated expected hit rate**; until then it is the model output (Poisson for goals/BTTS/FH; **DG simulation %** for corners/shots/SOT when available; a clamped style ramp for cards). Goals-related chips use the goal model; corners / shots / cards stay style-driven for lean/confidence:
 
 | Chip | Meaning |
 |------|---------|
@@ -117,16 +117,17 @@ We also use **home vs away** splits of these numbers so a team’s home profile 
 The **Strongest leans** page posts **at most one** outcome per fixture for the **current Nigerian (WAT) day**. It scores every published market plus the match-winner lean, then keeps a pick only if it clears a conservative bar:
 
 - **High** confidence
-- Model probability **≥ 65%** (missing probability fails — unlike the dashboard filters)
+- Model probability **≥ 65%** in general (**≥ 80%** for FH Over 0.5); missing probability fails
+- When the scoring environment is unusually hot vs baseline, Over/Yes goals markets face an extra probability bump
 - When DG and/or book signals exist for that market, the lean must **agree with every present signal** (both when both exist)
 
-Fixtures that fail the bar are **omitted**. Goal-model markets are preferred over style-only lines (corners / shots / cards) when both qualify. When two leans tie, a pick with **both** DG and book agreement ranks above **DG model only**. A banner at the top summarises recent hit-rate where football-data.co.uk stats allow grading — many leagues only have full-time scores, so treat that figure as indicative, not exhaustive.
+Fixtures that fail the bar are **omitted**. Ranking prefers source agreement, then measured market hit rates, then stated probability. A day-level diversification pass caps how many picks share the same market or Over family. Goal-model markets are preferred over style-only lines (corners / shots / cards) on remaining ties. When two leans tie, a pick with **both** DG and book agreement ranks above **DG model only**. A banner at the top summarises recent hit-rate where football-data.co.uk stats allow grading — many leagues only have full-time scores, so treat that figure as indicative, not exhaustive.
 
 This still **does not eliminate risk** and is **not betting advice** — it is a stricter shortlist of the same rule-based leans.
 
 ## AI Picks
 
-**AI Picks** takes today’s top gate-passing market candidates per fixture (not only the single Strongest lean) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). The model returns a coherence judgment and optional concerns, plus a publish/skip verdict. An **estimated hit chance** (shown as Est. N%) is computed from measured hit rates keyed by **market × source agreement × probability band**, shrunk toward parent aggregates when a bucket is thin, then nudged by the AI screen. It is **not** the model lean percentage (which is often overconfident). Only picks at or above the configured floor (default **55%**) are published.
+**AI Picks** takes today’s top gate-passing market candidates per fixture (not only the single Strongest lean) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). Each candidate includes its measured base hit rate so the model can avoid markets that cannot clear the publish bar. The model returns a coherence judgment, optional concerns, an optional risk line, plus a publish/skip verdict. An **estimated hit chance** (shown as Est. N%) is computed from measured hit rates keyed by **market × source agreement × probability band**, shrunk toward parent aggregates when a bucket is thin, then nudged by the AI screen. It is **not** the model lean percentage (which is often overconfident). Only picks at or above the configured floor (default **55%**) are published by default; if every publish fails that floor, a single best-available soft fallback may still appear with a clear note. A short **board note** may summarise the published set for the day.
 
 - The AI may only use the fields we send (probability, confidence, DG/book agreement, drivers). It should **not** invent injuries or lineups.
 - No API key → the page explains setup; the matches job stays green.
@@ -143,7 +144,7 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 6. Compare **Our lean** with **DG model** and **Book** — agreement is a soft green flag, not a guarantee.
 7. Click **Technical details** only if you want the model version and raw contribution scores.
 
-The filter URL is shareable — copy the address bar after Apply to send someone the same shortlist. Chip percentages are **P(lean)** (Over and Under both show the chance of that side). After `dg backtest` / `dg calibrate` they are pulled toward measured hit rates. Corners / shots / cards remain a style ramp until that history exists. Run `dg market-audit` to see stated % vs actual hits and whether a market is rank-worthy for Strongest.
+The filter URL is shareable — copy the address bar after Apply to send someone the same shortlist. Chip percentages are **P(lean)** (Over and Under both show the chance of that side). After `dg backtest` / `dg calibrate` they are pulled toward measured hit rates. Corners / shots / SOT use DG sim % when present (cards still use a style ramp). Run `dg market-audit` to see stated % vs actual hits and whether a market is rank-worthy for Strongest.
 
 ## What “stale” means
 

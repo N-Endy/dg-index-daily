@@ -135,6 +135,7 @@ def compute_scoring_environment(
         "stretched": stretched,
         "caution": caution,
         "over_prob_bump": float(config.SCORING_ENV_OVER_PROB_BUMP) if stretched else 0.0,
+        "over_prob_dampen": float(config.SCORING_ENV_OVER_PROB_DAMPEN) if stretched else 1.0,
     }
 
 
@@ -169,3 +170,47 @@ def over_market_prob_bump(
     if str(lean or "").strip() not in SCORING_ENV_OVER_LEANS:
         return 0.0
     return float(scoring_env.get("over_prob_bump") or config.SCORING_ENV_OVER_PROB_BUMP)
+
+
+def apply_scoring_env_to_markets(
+    markets: Dict[str, Any],
+    scoring_env: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Gently shrink Over/Yes stated probs when the scoring environment is stretched.
+    Leaves Under/No leans and non-goal markets unchanged.
+    """
+    if not markets or not isinstance(markets, dict):
+        return markets
+    if not getattr(config, "SCORING_ENV_DAMPEN_ENABLED", True):
+        return markets
+    if not scoring_env or not scoring_env.get("stretched"):
+        return markets
+    factor = float(
+        scoring_env.get("over_prob_dampen")
+        if scoring_env.get("over_prob_dampen") is not None
+        else config.SCORING_ENV_OVER_PROB_DAMPEN
+    )
+    if factor >= 0.999:
+        return markets
+    out = dict(markets)
+    for key, m in list(out.items()):
+        if key == "version" or not isinstance(m, dict):
+            continue
+        if str(key) not in SCORING_ENV_OVER_MARKETS:
+            continue
+        lean = str(m.get("lean") or "").strip()
+        if lean not in SCORING_ENV_OVER_LEANS:
+            continue
+        try:
+            prob = float(m.get("prob"))
+        except (TypeError, ValueError):
+            continue
+        new_prob = max(0.02, min(0.98, prob * factor))
+        updated = dict(m)
+        if updated.get("prob_raw") is None:
+            updated["prob_raw"] = round(prob, 4)
+        updated["prob"] = round(new_prob, 4)
+        updated["scoring_env_dampened"] = True
+        out[key] = updated
+    return out

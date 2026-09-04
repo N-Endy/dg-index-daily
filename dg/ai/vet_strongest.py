@@ -931,6 +931,7 @@ def vet_strongest_for_day(
         "n_flat_score_fallback": 0,
         "board_note_written": 0,
         "board_note_error": None,
+        "soft_fallback": False,
     }
 
     if not config.OPENAI_API_KEY and chat_fn is None:
@@ -1004,8 +1005,38 @@ def vet_strongest_for_day(
         approved = gate_screen_scores(
             candidates, all_scores, calibration=calibration
         )
-        if not approved and all_scores:
+        summary["soft_fallback"] = False
+        if not approved and all_scores and config.AI_VET_SOFT_FALLBACK:
+            soft = gate_screen_scores(
+                candidates,
+                all_scores,
+                min_score=0,
+                calibration=calibration,
+            )
+            if soft:
+                best = soft[0]
+                reason = (best.get("ai_reason") or "").strip()
+                suffix = "below bar — best available"
+                best["ai_reason"] = f"{reason} ({suffix})" if reason else suffix
+                best["ai_soft_fallback"] = True
+                approved = [best]
+                summary["soft_fallback"] = True
+                logger.warning(
+                    "AI vet: soft fallback kept fixture=%s market=%s est=%s",
+                    best.get("fixture_id"),
+                    best.get("market_key"),
+                    best.get("ai_score"),
+                )
+            else:
+                logger.warning(
+                    "AI vet: LLM returned scores but none matched candidates — no fallback"
+                )
+        elif not approved and all_scores:
             logger.warning("AI vet: LLM returned scores but none passed gate — no fallback")
+
+        from dg.report.best_leans import diversify_day_picks
+
+        approved = diversify_day_picks(approved)
         written = replace_ai_picks_for_day(conn, day_key, approved, model=model)
         summary["n_approved"] = len(approved)
         summary["written"] = written

@@ -194,11 +194,16 @@ AI_VET_BOARD_NOTE = os.environ.get("AI_VET_BOARD_NOTE", "1").strip().lower() in 
     "yes",
 )
 AI_VET_BOARD_NOTE_MAX_TOKENS = int(os.environ.get("AI_VET_BOARD_NOTE_MAX_TOKENS", "600"))
+AI_VET_SOFT_FALLBACK = os.environ.get("AI_VET_SOFT_FALLBACK", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Strongest lean selection
 STRONGEST_POISSON_PROB_EPSILON = float(os.environ.get("STRONGEST_POISSON_PROB_EPSILON", "0.03"))
 STRONGEST_USE_MARKET_HIT_RATES = os.environ.get(
-    "STRONGEST_USE_MARKET_HIT_RATES", "0"
+    "STRONGEST_USE_MARKET_HIT_RATES", "1"
 ).strip().lower() in ("1", "true", "yes")
 STRONGEST_MARKET_HIT_MIN_GRADED = int(os.environ.get("STRONGEST_MARKET_HIT_MIN_GRADED", "100"))
 STRONGEST_MIN_PROB = float(os.environ.get("STRONGEST_MIN_PROB", "0.65"))
@@ -212,6 +217,16 @@ STRONGEST_MIN_PROB_BY_MARKET = {
 STRONGEST_MIN_AUC = float(os.environ.get("STRONGEST_MIN_AUC", "0.55"))
 STRONGEST_AUC_MIN_LABELS = int(os.environ.get("STRONGEST_AUC_MIN_LABELS", "300"))
 STRONGEST_AUC_MIN_WEEKS = int(os.environ.get("STRONGEST_AUC_MIN_WEEKS", "8"))
+# Day-level diversification: max fraction of Strongest picks in one market / Over family.
+STRONGEST_MAX_SAME_MARKET_SHARE = float(
+    os.environ.get("STRONGEST_MAX_SAME_MARKET_SHARE", "0.40")
+)
+STRONGEST_MAX_OVER_FAMILY_SHARE = float(
+    os.environ.get("STRONGEST_MAX_OVER_FAMILY_SHARE", "0.65")
+)
+STRONGEST_DIVERSIFY_ENABLED = os.environ.get(
+    "STRONGEST_DIVERSIFY_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes")
 
 
 def strongest_min_prob(market_key: str | None = None) -> float:
@@ -229,6 +244,11 @@ SCORING_ENV_MIN_MATCHES = int(os.environ.get("SCORING_ENV_MIN_MATCHES", "30"))
 SCORING_ENV_STRETCH_RATIO = float(os.environ.get("SCORING_ENV_STRETCH_RATIO", "1.12"))
 SCORING_ENV_STRETCH_DELTA = float(os.environ.get("SCORING_ENV_STRETCH_DELTA", "0.35"))
 SCORING_ENV_OVER_PROB_BUMP = float(os.environ.get("SCORING_ENV_OVER_PROB_BUMP", "0.05"))
+# Multiply Over/Yes stated probs when the scoring environment is stretched (dashboard dampener).
+SCORING_ENV_OVER_PROB_DAMPEN = float(os.environ.get("SCORING_ENV_OVER_PROB_DAMPEN", "0.92"))
+SCORING_ENV_DAMPEN_ENABLED = os.environ.get(
+    "SCORING_ENV_DAMPEN_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes")
 
 # Market calibration for AI publish estimates
 MARKET_CALIBRATION_SHRINKAGE = float(os.environ.get("MARKET_CALIBRATION_SHRINKAGE", "50"))

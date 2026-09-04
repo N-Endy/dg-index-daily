@@ -74,6 +74,12 @@ def calibration_ranking_audit(conn, *, days: int = 90) -> Dict[str, Any]:
     result_index = load_result_index(conn)
     scored: List[Tuple[int, int]] = []  # (est_score, hit)
 
+    from dg.report.best_leans import get_market_aucs
+    from dg.report.scoring_env import load_scoring_environment
+
+    scoring_env = load_scoring_environment(conn)
+    market_aucs = get_market_aucs(conn)
+
     for r in rows:
         d = dict(r)
         try:
@@ -86,7 +92,9 @@ def calibration_ranking_audit(conn, *, days: int = 90) -> Dict[str, Any]:
         if not d.get("completed"):
             continue
         enriched = enrich_prediction_for_display(d)
-        for cand in collect_gate_passing_candidates(enriched):
+        for cand in collect_gate_passing_candidates(
+            enriched, market_aucs=market_aucs, scoring_env=scoring_env
+        ):
             rk, _ = grade_candidate_result(enriched, cand)
             if rk not in ("hit", "miss"):
                 continue

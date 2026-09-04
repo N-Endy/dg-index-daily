@@ -547,3 +547,40 @@ def test_other_markets_keep_global_min_prob(monkeypatch):
     assert pick is not None
     assert pick["market_key"] == "goals_2_5"
     assert pick["prob"] == 0.70
+
+
+def test_diversify_day_picks_caps_over_family(monkeypatch):
+    from dg.report.best_leans import diversify_day_picks
+
+    monkeypatch.setattr(config, "STRONGEST_DIVERSIFY_ENABLED", True)
+    monkeypatch.setattr(config, "STRONGEST_MAX_SAME_MARKET_SHARE", 0.5)
+    monkeypatch.setattr(config, "STRONGEST_MAX_OVER_FAMILY_SHARE", 0.4)
+    picks = [
+        {"market_key": "goals_2_5", "lean": "Over", "fixture_id": i}
+        for i in range(1, 6)
+    ] + [
+        {"market_key": "match_1x2", "lean": "Home", "fixture_id": 10},
+        {"market_key": "match_1x2", "lean": "Away", "fixture_id": 11},
+    ]
+    kept = diversify_day_picks(picks)
+    over_n = sum(1 for p in kept if p["market_key"] == "goals_2_5")
+    assert over_n <= 2  # 0.4 * 7 → max 2
+    assert any(p["market_key"] == "match_1x2" for p in kept)
+
+
+def test_hit_rate_ranks_before_prob(monkeypatch):
+    from dg.report.best_leans import _better_candidate
+
+    monkeypatch.setattr(config, "STRONGEST_POISSON_PROB_EPSILON", 0.03)
+    a = {
+        "market_key": "btts",
+        "prob": 0.70,
+        "_rank": (2, 2, 1, 0.70, 0.3),
+    }
+    b = {
+        "market_key": "goals_2_5",
+        "prob": 0.78,
+        "_rank": (2, 2, 1, 0.78, 0.3),
+    }
+    rates = {"btts": 0.62, "goals_2_5": 0.48}
+    assert _better_candidate(a, b, market_hit_rates=rates) is True

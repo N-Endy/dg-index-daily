@@ -138,6 +138,7 @@ def predict_fixture(
     snapshot_id: int,
     *,
     persist: bool = True,
+    scoring_env: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     version, cfg = load_config()
     home = build_team_features(conn, int(fixture_row["home_id"]), snapshot_id)
@@ -148,12 +149,6 @@ def predict_fixture(
 
     score, weighted, drivers = _score_matchup(matchup, cfg)
     character = _character(matchup, cfg)
-
-    league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
-    goal_probs = predict_goals(matchup, league_avg=league_avg)
-    blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
-    lean = _lean_from_probs(blended)
-    confidence = _confidence(score, matchup, cfg, probs=blended)
 
     proj = conn.execute(
         """
@@ -169,7 +164,16 @@ def predict_fixture(
         matchup["sim_xg_home"] = proj["sim_xg_home"]
         matchup["sim_xg_away"] = proj["sim_xg_away"]
 
+    league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
+    goal_probs = predict_goals(matchup, league_avg=league_avg)
+    blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
+    lean = _lean_from_probs(blended)
+    confidence = _confidence(score, matchup, cfg, probs=blended)
+
     markets = predict_markets(matchup, book=book, sim=sim, goal_probs=goal_probs)
+    from dg.report.scoring_env import apply_scoring_env_to_markets
+
+    markets = apply_scoring_env_to_markets(markets, scoring_env)
     from dg.model.supervised import apply_market_prob_calibration, load_market_prob_calibration
 
     calib_params = load_market_prob_calibration(conn, model_version=version)
@@ -260,6 +264,8 @@ def predict_upcoming(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    from dg.report.scoring_env import load_scoring_environment
+
     sql = "SELECT * FROM fixture WHERE 1=1"
     params: List[Any] = []
     if date_from:
@@ -270,9 +276,12 @@ def predict_upcoming(
         params.append(date_to)
     sql += " ORDER BY date_utc"
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    scoring_env = load_scoring_environment(conn)
     out = []
     for row in rows:
-        pred = predict_fixture(conn, row, snapshot_id)
+        pred = predict_fixture(
+            conn, row, snapshot_id, scoring_env=scoring_env
+        )
         if pred:
             out.append(pred)
     logger.info("Predicted %d / %d fixtures", len(out), len(rows))

@@ -1,5 +1,5 @@
-# markets_v3 — P(lean) convention for all markets (direction fix for heuristic Unders)
-version: markets_v3
+# markets_v4 — heuristic props use DG sim % as stated P(Over); FH sim bias wired
+version: markets_v4
 
 confidence:
   high_abs_score_gte: 0.30

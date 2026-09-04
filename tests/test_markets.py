@@ -165,3 +165,43 @@ def test_poisson_under_prob_is_complement():
     assert abs(out["goals_2_5"]["prob"] - 0.65) < 1e-6
     assert out["btts"]["lean"] == "No"
     assert abs(out["btts"]["prob"] - 0.60) < 1e-6
+
+
+def test_corners_shots_sot_use_sim_pct_as_prob():
+    out = predict_markets(
+        _base_matchup(pace_clash=90.0),
+        sim={
+            "percents": {
+                "corners_over_9_5_pct": 72,
+                "shots_over_25_5_pct": 61,
+                "sot_over_8_5_pct": 58,
+            }
+        },
+    )
+    # Style lean may be Under on quiet pace; P(lean) still comes from sim %.
+    assert abs(out["corners_9_5"]["prob"] - (
+        0.72 if out["corners_9_5"]["lean"] == "Over" else 0.28
+    )) < 1e-6
+    assert abs(out["shots_25_5"]["prob"] - (
+        0.61 if out["shots_25_5"]["lean"] == "Over" else 0.39
+    )) < 1e-6
+    assert abs(out["sot_8_5"]["prob"] - (
+        0.58 if out["sot_8_5"]["lean"] == "Over" else 0.42
+    )) < 1e-6
+
+
+def test_fh_over_wires_sim_fh_bias():
+    from dg.model.markets import _fh_sim_over_p
+
+    assert _fh_sim_over_p(0.0) is None
+    p = _fh_sim_over_p(1.2)
+    assert p is not None and 0.5 < p < 0.98
+
+    quiet = predict_markets(_base_matchup())
+    hot = predict_markets(
+        _base_matchup(),
+        sim={"first_half": {"xg": {"home": 0.7, "away": 0.6}}},
+        goal_probs={"fh_over_0_5": 0.55},
+    )
+    assert hot["fh_over_0_5"]["score"] > quiet["fh_over_0_5"]["score"]
+    assert hot["fh_over_0_5"]["dg_lean"] == "Over"

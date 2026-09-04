@@ -191,6 +191,23 @@ def _heuristic_p_pos(score: float) -> float:
     return min(0.85, max(0.15, 0.5 + float(score) * 0.3))
 
 
+def _sim_pct_p_pos(pct: Optional[float], score: float) -> float:
+    """Prefer DG sim over-% as P(Over); fall back to the style score ramp."""
+    if pct is not None:
+        try:
+            return min(0.98, max(0.02, float(pct) / 100.0))
+        except (TypeError, ValueError):
+            pass
+    return _heuristic_p_pos(score)
+
+
+def _fh_sim_over_p(fh_xg_total: float) -> Optional[float]:
+    """Approximate P(FH Over 0.5) from first-half sim xG under independence."""
+    if fh_xg_total <= 0:
+        return None
+    return min(0.98, max(0.02, 1.0 - math.exp(-float(fh_xg_total))))
+
+
 def _ou_from_odds(over: Any, under: Any) -> Optional[str]:
     try:
         o, u = float(over), float(under)
@@ -525,18 +542,24 @@ def predict_markets(
     # --- FH Over 0.5 ---
     p_fho = gp.get("fh_over_0_5")
     fho_w = cfg.get("fh_over_0_5") or {}
+    sim_fh_p = _fh_sim_over_p(fh_xg_t)
+    sim_fh_bias = (float(sim_fh_p) - 0.5) * 2.0 if sim_fh_p is not None else 0.0
     fho_score, _, fho_drv = _weighted(
         {
             "poisson_fh_over_bias": (_num(p_fho, 0.5) - 0.5) * 2.0 if p_fho is not None else 0.0,
             "agix_sum": (agix_sum - 100.0) / 100.0,
             "pace_clash": (pace - 100.0) / 100.0,
             "fh_xg_total_bias": (fh_xg_t - 0.5) / 1.0 if fh_xg_t else (pace - 100.0) / 100.0,
-            "sim_fh_over_bias": 0.0,
+            "sim_fh_over_bias": sim_fh_bias,
         },
         fho_w,
     )
     fho_lean = _lean_from_prob(_num(p_fho, 0.5), "Over", "Under") if p_fho is not None else _binary_lean(fho_score, "Over", "Under")
     fh_over_book = _ou_from_odds(book.get("fh_over_0_5"), book.get("fh_under_0_5"))
+    if sim_fh_p is not None:
+        fh_dg = "Over" if sim_fh_p >= 0.5 else "Under"
+    else:
+        fh_dg = "Over" if fh_xg_t >= math.log(2) else ("Under" if fh_xg_t > 0 else None)
     out["fh_over_0_5"] = _pack(
         key="fh_over_0_5",
         label="FH O/U 0.5",
@@ -544,7 +567,7 @@ def predict_markets(
         confidence=_conf(fho_score, matchup, cfg),
         score=fho_score,
         drivers=fho_drv,
-        dg_lean="Over" if fh_xg_t >= math.log(2) else ("Under" if fh_xg_t > 0 else None),
+        dg_lean=fh_dg,
         book_lean=fh_over_book,
         prob=_lean_side_prob(float(p_fho) if p_fho is not None else None, fho_lean, "Over"),
         line=0.5,
@@ -572,7 +595,7 @@ def predict_markets(
         drivers=c_drv,
         dg_lean=_ou_from_pct(corners_pct),
         book_lean=None,
-        prob=_lean_side_prob(_heuristic_p_pos(c_score), c_lean, "Over"),
+        prob=_lean_side_prob(_sim_pct_p_pos(corners_pct, c_score), c_lean, "Over"),
         line=corners_line,
     )
 
@@ -597,7 +620,7 @@ def predict_markets(
         drivers=s_drv,
         dg_lean=_ou_from_pct(shots_pct),
         book_lean=None,
-        prob=_lean_side_prob(_heuristic_p_pos(s_score), s_lean, "Over"),
+        prob=_lean_side_prob(_sim_pct_p_pos(shots_pct, s_score), s_lean, "Over"),
         line=shots_line,
     )
 
@@ -623,7 +646,7 @@ def predict_markets(
         drivers=so_drv,
         dg_lean=_ou_from_pct(sot_pct),
         book_lean=None,
-        prob=_lean_side_prob(_heuristic_p_pos(so_score), so_lean, "Over"),
+        prob=_lean_side_prob(_sim_pct_p_pos(sot_pct, so_score), so_lean, "Over"),
         line=sot_line,
     )
 

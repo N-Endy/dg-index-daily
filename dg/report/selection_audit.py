@@ -20,6 +20,10 @@ def selection_regret_audit(conn, *, days: int = 30) -> Dict[str, Any]:
 
     Returns selected hit rate, oracle hit rate (any qualifying market hit), and regret rate.
     """
+    from dg.report.best_leans import get_market_aucs, get_market_hit_rates
+    from dg.report.scoring_env import load_scoring_environment
+    from dg import config
+
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     rows = conn.execute(
         """
@@ -36,6 +40,9 @@ def selection_regret_audit(conn, *, days: int = 30) -> Dict[str, Any]:
     ).fetchall()
 
     result_index = load_result_index(conn)
+    scoring_env = load_scoring_environment(conn)
+    market_aucs = get_market_aucs(conn)
+    market_hit_rates = get_market_hit_rates(conn) if config.STRONGEST_USE_MARKET_HIT_RATES else None
     selected_graded = 0
     selected_hits = 0
     oracle_graded = 0
@@ -56,7 +63,9 @@ def selection_regret_audit(conn, *, days: int = 30) -> Dict[str, Any]:
             continue
 
         enriched = enrich_prediction_for_display(d)
-        gate_cands = collect_gate_passing_candidates(enriched)
+        gate_cands = collect_gate_passing_candidates(
+            enriched, market_aucs=market_aucs, scoring_env=scoring_env
+        )
         if not gate_cands:
             continue
 
@@ -77,7 +86,12 @@ def selection_regret_audit(conn, *, days: int = 30) -> Dict[str, Any]:
         if any_hit:
             oracle_hits += 1
 
-        pick = select_strongest_lean(enriched)
+        pick = select_strongest_lean(
+            enriched,
+            market_hit_rates=market_hit_rates,
+            market_aucs=market_aucs,
+            scoring_env=scoring_env,
+        )
         if not pick:
             continue
         sel_rk = pick.get("lean_result_key")
