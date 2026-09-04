@@ -27,8 +27,48 @@ def _vet_prediction(fixture_id: int) -> dict:
         "score": 0.4,
         "dg_sim_lean": "Home",
         "book_lean": "Home",
-        "probs": {"home": 0.7, "draw": 0.2, "away": 0.1},
+        "home_win_pct": 55.0,
+        "draw_pct": 25.0,
+        "away_win_pct": 20.0,
+        "over_2_5_pct": 60.0,
+        "btts_pct": 55.0,
+        "sim_xg_home": 1.4,
+        "sim_xg_away": 1.1,
+        "probs": {
+            "home": 0.7,
+            "draw": 0.2,
+            "away": 0.1,
+            "lam_home": 1.5,
+            "lam_away": 1.1,
+            "over_2_5": 0.58,
+            "btts_yes": 0.54,
+        },
         "markets": {},
+        "book_odds": {
+            "home_win": 1.9,
+            "draw": 3.5,
+            "away_win": 4.0,
+            "over_2_5": 1.8,
+            "under_2_5": 2.0,
+            "btts_yes": 1.9,
+            "btts_no": 1.9,
+        },
+        "sim_stats": {
+            "xg": {"home": 1.4, "away": 1.1},
+            "percents": {
+                "home_win_pct": 55.0,
+                "draw_pct": 25.0,
+                "away_win_pct": 20.0,
+                "over_2_5_pct": 60.0,
+                "under_2_5_pct": 40.0,
+                "btts_pct": 55.0,
+                "btts_no_pct": 45.0,
+                "corners_over_9_5_pct": 52.0,
+                "shots_over_25_5_pct": 70.0,
+                "sot_over_8_5_pct": 65.0,
+            },
+            "matchup_pace": {"score": 0.2},
+        },
         "date_utc": "2026-08-30T15:00:00+00:00",
         "kickoff_display": "Sun 30 Aug · 16:00 WAT",
     }
@@ -36,7 +76,32 @@ def _vet_prediction(fixture_id: int) -> dict:
 
 def _vet_ctx(n: int = 4) -> dict:
     preds = [_vet_prediction(i) for i in range(1, n + 1)]
-    return {"day": "2026-08-30", "predictions": preds, "picks": [], "empty": False}
+    return {
+        "day": "2026-08-30",
+        "predictions": preds,
+        "picks": [],
+        "empty": False,
+        "scoring_env": {},
+    }
+
+
+def _llm_publish(
+    fixture_id: int,
+    *,
+    market_key: str = "match_1x2",
+    lean: str = "Home",
+    coherence: int = 3,
+    reason: str = "ok",
+) -> dict:
+    return {
+        "fixtureId": fixture_id,
+        "marketKey": market_key,
+        "lean": lean,
+        "verdict": "publish",
+        "coherence": coherence,
+        "concerns": [],
+        "reason": reason,
+    }
 
 
 def test_chat_json_sends_max_completion_tokens(monkeypatch):
@@ -306,6 +371,7 @@ def test_parse_component_response():
                 {
                     "fixtureId": 10,
                     "marketKey": "goals_2_5",
+                    "lean": "Over",
                     "verdict": "publish",
                     "coherence": 2,
                     "concerns": ["thin book"],
@@ -355,6 +421,7 @@ def test_single_source_ranks_below_two_source():
                     {
                         "fixtureId": 1,
                         "marketKey": "goals_2_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -363,6 +430,7 @@ def test_single_source_ranks_below_two_source():
                     {
                         "fixtureId": 2,
                         "marketKey": "goals_2_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": ["dg only"],
@@ -379,52 +447,31 @@ def test_single_source_ranks_below_two_source():
     assert by_fid[2]["ai_agreement_tier"] == "agree1"
 
 
-def test_fixture_group_payload_shuffles_deterministically():
+def test_fixture_group_payload_uses_signal_pack():
+    from dg.ai.signal_pack import build_fixture_signal_pack
+
+    pred = _vet_prediction(42)
+    pack = build_fixture_signal_pack(pred)
     group = {
         "fixture_id": 42,
         "home_name": "A",
         "away_name": "B",
         "league": "EPL",
-        "date_utc": "2026-08-30T15:00:00+00:00",
-        "candidates": [
-            {
-                "fixture_id": 42,
-                "market_key": "match_1x2",
-                "lean": "Home",
-                "prob": 0.7,
-                "agreement_key": "aligned",
-                "agreement_n_sources": 2,
-            },
-            {
-                "fixture_id": 42,
-                "market_key": "goals_2_5",
-                "lean": "Over",
-                "prob": 0.8,
-                "agreement_key": "aligned",
-                "agreement_n_sources": 2,
-            },
-            {
-                "fixture_id": 42,
-                "market_key": "btts",
-                "lean": "Yes",
-                "prob": 0.75,
-                "agreement_key": "aligned",
-                "agreement_n_sources": 2,
-            },
-        ],
+        "signal_pack": pack,
+        "candidates": [],
     }
     a = fixture_group_payload(group)
     b = fixture_group_payload(group)
-    keys_a = [c["marketKey"] for c in a["candidates"]]
-    keys_b = [c["marketKey"] for c in b["candidates"]]
-    assert keys_a == keys_b
-    assert set(keys_a) == {"match_1x2", "goals_2_5", "btts"}
-    assert "minScoreHint" not in a
-    assert "prob" in a["candidates"][0]
-    assert "baseRate" in a["candidates"][0]
-    assert "baseN" in a["candidates"][0]
-    assert "projectedEst" in a["candidates"][0]
-    assert isinstance(a["candidates"][0]["projectedEst"], int)
+    assert a == b
+    assert a["fixtureId"] == 42
+    assert "sim" in a and "book" in a
+    assert "allowedMarkets" in a
+    assert "candidates" not in a
+    assert "lean" not in a
+    assert "prob" not in a
+    assert "confidence" not in a
+    dumped = json.dumps(a)
+    assert '"lean": "Home"' not in dumped
 
 
 def test_vet_batches_candidates(tmp_path, monkeypatch):
@@ -456,26 +503,11 @@ def test_vet_batches_candidates(tmp_path, monkeypatch):
         assert "board" in payload
         boards.append(payload["board"])
         for fx in payload["fixtures"]:
-            for c in fx["candidates"]:
-                assert "baseRate" in c
-                assert "projectedEst" in c
+            assert "sim" in fx
+            assert "allowedMarkets" in fx
+            assert "candidates" not in fx
         fids = [1, 2] if calls["n"] == 1 else [3, 4]
-        return json.dumps(
-            {
-                "picks": [
-                    {
-                        "fixtureId": fid,
-                        "marketKey": "match_1x2",
-                        "verdict": "publish",
-                        "agreement": 3,
-                        "coherence": 3,
-                        "concerns": [],
-                        "reason": "ok",
-                    }
-                    for fid in fids
-                ]
-            }
-        )
+        return json.dumps({"picks": [_llm_publish(fid) for fid in fids]})
 
     conn = init_db(connect(config.DB_PATH))
     _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
@@ -586,6 +618,7 @@ def test_gate_components_recompute_with_base_rate():
                     {
                         "fixtureId": 1,
                         "marketKey": "goals_2_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -623,6 +656,7 @@ def test_gate_components_recompute_with_base_rate():
                     {
                         "fixtureId": 1,
                         "marketKey": "goals_3_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -660,6 +694,7 @@ def test_gate_one_per_fixture_keeps_higher_score():
                     {
                         "fixtureId": 1,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "verdict": "publish",
                         "agreement": 2,
                         "coherence": 2,
@@ -669,6 +704,7 @@ def test_gate_one_per_fixture_keeps_higher_score():
                     {
                         "fixtureId": 1,
                         "marketKey": "goals_2_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
@@ -781,6 +817,7 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
                     {
                         "fixtureId": 7,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
@@ -845,6 +882,7 @@ def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
                     {
                         "fixtureId": 7,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "score": 85,
                         "approve": True,
                         "reason": "legacy flat score",
@@ -880,15 +918,9 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
     config.ensure_dirs()
 
     pred = {
-        "fixture_id": 99,
+        **_vet_prediction(99),
         "home_name": "Alpha",
         "away_name": "Beta",
-        "lean": "Home",
-        "confidence": "high",
-        "score": 0.45,
-        "dg_sim_lean": "Home",
-        "book_lean": "Home",
-        "probs": {"home": 0.74, "draw": 0.16, "away": 0.10},
         "markets": {
             "goals_2_5": {
                 "lean": "Over",
@@ -907,8 +939,6 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
                 "book_lean": "Yes",
             },
         },
-        "date_utc": "2026-08-30T15:00:00+00:00",
-        "kickoff_display": "Sun 30 Aug · 16:00 WAT",
     }
     monkeypatch.setattr(
         vs,
@@ -928,6 +958,7 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
                     {
                         "fixtureId": 99,
                         "marketKey": "btts",
+                        "lean": "Yes",
                         "verdict": "publish",
                         "agreement": 3,
                         "coherence": 3,
@@ -1007,7 +1038,7 @@ def test_build_board_envelope_deterministic():
     assert a["recentAiHitRate"]["nGraded"] == 40
 
 
-def test_ai_vet_max_candidates_widens_pool(tmp_path, monkeypatch):
+def test_ai_vet_signal_pack_lists_allowed_markets(tmp_path, monkeypatch):
     from dg import config
     import dg.ai.vet_strongest as vs
 
@@ -1015,21 +1046,10 @@ def test_ai_vet_max_candidates_widens_pool(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
-    monkeypatch.setattr(config, "AI_VET_MAX_CANDIDATES", 6)
     monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
-    pred = {
-        **_vet_prediction(50),
-        "markets": {
-            "goals_2_5": _gate_market("Over", 0.72),
-            "goals_3_5": _gate_market("Over", 0.68),
-            "btts": _gate_market("Yes", 0.71),
-            "fh_over_0_5": _gate_market("Over", 0.88),
-            "team_goals_home_1_5": _gate_market("Over", 0.70),
-            "team_goals_away_1_5": _gate_market("Over", 0.69),
-        },
-    }
+    pred = _vet_prediction(50)
     monkeypatch.setattr(
         vs,
         "load_strongest_day",
@@ -1047,27 +1067,19 @@ def test_ai_vet_max_candidates_widens_pool(tmp_path, monkeypatch):
     def fake_chat(system, user):
         seen["n"] += 1
         payload = json.loads(user.split("\n", 1)[-1])
-        assert len(payload["fixtures"][0]["candidates"]) == 6
-        return json.dumps(
-            {
-                "picks": [
-                    {
-                        "fixtureId": 50,
-                        "marketKey": "match_1x2",
-                        "verdict": "publish",
-                        "coherence": 3,
-                        "concerns": [],
-                        "reason": "ok",
-                    }
-                ]
-            }
-        )
+        fx = payload["fixtures"][0]
+        assert "candidates" not in fx
+        assert "sim" in fx and "book" in fx
+        keys = {m["marketKey"] for m in fx["allowedMarkets"]}
+        assert "match_1x2" in keys and "goals_2_5" in keys
+        return json.dumps({"picks": [_llm_publish(50)]})
 
     conn = init_db(connect(config.DB_PATH))
     _seed_fixture(conn, 50)
     _seed_calibration(conn, market_key="match_1x2", band="lt_75", rate=0.55)
     summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
-    assert summary["n_candidates"] == 6
+    assert summary["n_candidates"] == 1
+    assert summary["written"] == 1
     assert seen["n"] == 1
     conn.close()
 
@@ -1112,6 +1124,7 @@ def test_board_note_persists_and_risk_round_trips(tmp_path, monkeypatch):
                     {
                         "fixtureId": 11,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -1181,6 +1194,7 @@ def test_board_note_failure_preserves_picks(tmp_path, monkeypatch):
                     {
                         "fixtureId": 12,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -1228,6 +1242,7 @@ def test_gate_risk_does_not_change_est_score():
                     {
                         "fixtureId": 1,
                         "marketKey": "goals_2_5",
+                        "lean": "Over",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -1297,6 +1312,7 @@ def test_ai_soft_fallback_keeps_best_below_bar(tmp_path, monkeypatch):
                     {
                         "fixtureId": 21,
                         "marketKey": "match_1x2",
+                        "lean": "Home",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
@@ -1331,28 +1347,25 @@ def test_vet_no_candidates_preserves_existing_ai_picks(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
-    # Predictions exist but nothing clears AI light floors (low confidence).
-    low = {
-        **_vet_prediction(33),
-        "confidence": "low",
-        "probs": {"home": 0.55, "draw": 0.25, "away": 0.20},
-        "markets": {
-            "goals_2_5": {
-                "lean": "Over",
-                "confidence": "low",
-                "score": 0.1,
-                "prob": 0.80,
-                "dg_lean": "Over",
-                "book_lean": "Over",
-            }
-        },
+    # Predictions exist but no DG/book signals → nothing to vet.
+    bare = {
+        "fixture_id": 33,
+        "home_name": "H33",
+        "away_name": "A33",
+        "lean": "Home",
+        "confidence": "high",
+        "probs": {"home": 0.7, "draw": 0.2, "away": 0.1},
+        "markets": {},
+        "book_odds": {},
+        "sim_stats": {},
+        "date_utc": "2026-08-30T15:00:00+00:00",
     }
     monkeypatch.setattr(
         vs,
         "load_strongest_day",
         lambda date=None: {
             "day": "2026-08-30",
-            "predictions": [low],
+            "predictions": [bare],
             "picks": [],
             "empty": False,
             "scoring_env": {},
@@ -1389,16 +1402,12 @@ def test_vet_no_candidates_preserves_existing_ai_picks(tmp_path, monkeypatch):
     conn.close()
 
 
-def test_vet_includes_sub_strongest_disagree_market(tmp_path, monkeypatch):
-    """AI pool admits mid-prob / disagree markets that Strongest hard gates reject."""
+def test_vet_can_pick_lean_disagreeing_with_dashboard_chip(tmp_path, monkeypatch):
+    """AI may publish a lean that disagrees with our dashboard market chip."""
     from dg import config
     import dg.ai.vet_strongest as vs
     from dg.ai.vet_strongest import load_ai_picks
-    from dg.report.best_leans import (
-        collect_ai_pool_candidates,
-        collect_gate_passing_candidates,
-        select_strongest_lean,
-    )
+    from dg.ai.signal_pack import build_fixture_signal_pack
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
@@ -1410,24 +1419,27 @@ def test_vet_includes_sub_strongest_disagree_market(tmp_path, monkeypatch):
 
     pred = {
         **_vet_prediction(44),
-        "confidence": "medium",
-        "dg_sim_lean": "Away",
-        "book_lean": "Away",
-        "probs": {"home": 0.58, "draw": 0.22, "away": 0.20},
         "markets": {
             "goals_2_5": {
                 "lean": "Over",
-                "confidence": "medium",
-                "score": 0.25,
-                "prob": 0.60,
+                "confidence": "high",
+                "score": 0.4,
+                "prob": 0.72,
                 "dg_lean": "Under",
                 "book_lean": "Under",
             }
         },
     }
-    assert select_strongest_lean(pred) is None
-    assert collect_gate_passing_candidates(pred) == []
-    assert any(c["market_key"] == "goals_2_5" for c in collect_ai_pool_candidates(pred))
+    # Flip sim toward Under so AI lean Under is signal-backed.
+    pred["sim_stats"]["percents"]["over_2_5_pct"] = 38.0
+    pred["sim_stats"]["percents"]["under_2_5_pct"] = 62.0
+    pred["over_2_5_pct"] = 38.0
+    pred["book_odds"]["over_2_5"] = 2.2
+    pred["book_odds"]["under_2_5"] = 1.7
+
+    pack = build_fixture_signal_pack(pred)
+    assert "lean" not in pack
+    assert pack["sim"]["percents"].get("over_2_5_pct") == 38.0
 
     monkeypatch.setattr(
         vs,
@@ -1443,18 +1455,20 @@ def test_vet_includes_sub_strongest_disagree_market(tmp_path, monkeypatch):
 
     def fake_chat(system, user):
         payload = json.loads(user.split("\n", 1)[-1])
-        keys = {c["marketKey"] for c in payload["fixtures"][0]["candidates"]}
-        assert "goals_2_5" in keys
+        fx = payload["fixtures"][0]
+        assert "candidates" not in fx
+        assert "sim" in fx
         return json.dumps(
             {
                 "picks": [
                     {
                         "fixtureId": 44,
                         "marketKey": "goals_2_5",
+                        "lean": "Under",
                         "verdict": "publish",
                         "coherence": 3,
                         "concerns": [],
-                        "reason": "worth a look despite split sources",
+                        "reason": "sim and book favour under",
                     }
                 ]
             }
@@ -1464,9 +1478,51 @@ def test_vet_includes_sub_strongest_disagree_market(tmp_path, monkeypatch):
     _seed_fixture(conn, 44)
     _seed_calibration(conn, market_key="goals_2_5", band="lt_75", rate=0.62)
     summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
-    assert summary["skipped_no_candidates"] is False
-    assert summary["n_candidates"] >= 1
     assert summary["written"] == 1
     picks = load_ai_picks(conn, "2026-08-30")
     assert picks[0]["market_key"] == "goals_2_5"
+    assert picks[0]["lean"] == "Under"
     conn.close()
+
+
+def test_parse_rejects_invalid_ai_lean():
+    rows = parse_screen_response(
+        json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 1,
+                        "marketKey": "goals_2_5",
+                        "lean": "Home",
+                        "verdict": "publish",
+                        "coherence": 3,
+                    }
+                ]
+            }
+        )
+    )
+    assert rows == []
+
+
+def test_signal_pack_omits_dashboard_leans():
+    from dg.ai.signal_pack import build_fixture_signal_pack, materialize_ai_candidate
+
+    pred = _vet_prediction(7)
+    pred["markets"] = {
+        "goals_2_5": {
+            "lean": "Over",
+            "confidence": "high",
+            "prob": 0.9,
+            "dg_lean": "Over",
+            "book_lean": "Over",
+        }
+    }
+    pack = build_fixture_signal_pack(pred)
+    blob = json.dumps(pack)
+    assert "markets" not in pack
+    assert '"lean": "Over"' not in blob
+    assert '"confidence"' not in blob
+    cand = materialize_ai_candidate(pred, "goals_2_5", "Under")
+    assert cand is not None
+    assert cand["lean"] == "Under"
+    assert cand["prob"] is not None

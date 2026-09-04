@@ -282,7 +282,8 @@ def load_dashboard_context(
             proj = conn.execute(
                 """
                 SELECT home_win_pct, draw_pct, away_win_pct, book_odds_json,
-                       sim_xg_home, sim_xg_away
+                       sim_xg_home, sim_xg_away, sim_stats_json,
+                       over_2_5_pct, btts_pct, matchup_pace_score
                 FROM fixture_projection
                 WHERE fixture_id = ?
                 ORDER BY observed_at DESC LIMIT 1
@@ -292,11 +293,24 @@ def load_dashboard_context(
             if proj:
                 d["sim_xg_home"] = proj["sim_xg_home"]
                 d["sim_xg_away"] = proj["sim_xg_away"]
+                d["home_win_pct"] = proj["home_win_pct"]
+                d["draw_pct"] = proj["draw_pct"]
+                d["away_win_pct"] = proj["away_win_pct"]
+                d["over_2_5_pct"] = proj["over_2_5_pct"]
+                d["btts_pct"] = proj["btts_pct"]
+                d["matchup_pace_score"] = proj["matchup_pace_score"]
                 book = {}
                 try:
                     book = json.loads(proj["book_odds_json"] or "{}")
                 except json.JSONDecodeError:
                     book = {}
+                d["book_odds"] = book if isinstance(book, dict) else {}
+                sim = {}
+                try:
+                    sim = json.loads(proj["sim_stats_json"] or "{}")
+                except json.JSONDecodeError:
+                    sim = {}
+                d["sim_stats"] = sim if isinstance(sim, dict) else {}
                 from dg.features.matchup import book_lean, sim_lean
 
                 d["dg_sim_lean"] = sim_lean(
@@ -306,6 +320,8 @@ def load_dashboard_context(
             else:
                 d.setdefault("dg_sim_lean", None)
                 d.setdefault("book_lean", None)
+                d.setdefault("book_odds", {})
+                d.setdefault("sim_stats", {})
 
             attach_result_to_prediction(d, result_index)
             predictions.append(d)

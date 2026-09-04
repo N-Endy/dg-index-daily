@@ -6,9 +6,10 @@
   <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
   <h1>AI Picks</h1>
   <p class="lede">
-    LLM screen over today’s dashboard market board (light confidence and probability floors) —
-    distinct from the stricter Strongest shortlist. Only published when the estimated hit chance
-    clears the bar. Still exploratory analytics, not betting advice.
+    LLM chooses a market and direction from DataGaffer sim signals and book prices —
+    not from dashboard lean chips. Distinct from the stricter Strongest shortlist. Only
+    published when the estimated hit chance clears the bar. Still exploratory analytics,
+    not betting advice.
   </p>
 </section>
 
@@ -33,7 +34,7 @@
   {% if not has_openai_key %}
   See <a href="/guide">How to read this</a> for setup notes.
   {% else %}
-  Compare with <a href="/strongest">Strongest leans</a> for the strict high-bar shortlist,
+  Compare with <a href="/strongest">Strongest leans</a> for the rule-based high-bar shortlist,
   or the <a href="/?date={{ day }}">dashboard</a> for the full board.
   {% endif %}
 </div>

@@ -54,7 +54,7 @@ def load_ai_picks_page(*, day: Optional[str] = None) -> Dict[str, Any]:
         )
     elif not picks:
         message = (
-            "None of today’s dashboard-pool candidates cleared the AI bar "
+            "None of today’s signal-based candidates cleared the AI bar "
             f"(estimated chance ≥ {config.AI_VET_MIN_SCORE}%), or vetting has not run yet."
         )
 

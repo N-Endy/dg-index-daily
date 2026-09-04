@@ -1,4 +1,4 @@
-"""Screen dashboard-pool leans with an LLM and persist approved AI picks."""
+"""Screen DataGaffer fixture signals with an LLM and persist approved AI picks."""
 from __future__ import annotations
 
 import json
@@ -11,10 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dg import config
 from dg.ai.openai_client import OpenAIError, chat_json
+from dg.ai.signal_pack import (
+    build_ai_signal_fixture_groups,
+    is_valid_ai_lean,
+    materialize_ai_candidate,
+)
 from dg.report.best_leans import (
-    build_ai_vet_fixture_groups,
     build_strongest_picks,
-    flatten_vet_groups,
     get_market_hit_rates,
     load_strongest_day,
 )
@@ -31,29 +34,23 @@ PUBLISH_CAP = 0.95
 ECHO_DELTA = 3
 
 SYSTEM_PROMPT = (
-    "You are a conservative football analyst reviewing directional leans "
-    "from a rule-based ratings model (DataGaffer DG Index). "
-    "For each fixture you may see multiple market candidates from today's dashboard board "
-    "(light confidence/probability floors — not the stricter Strongest shortlist). "
-    "Pick at most ONE candidate per fixture to publish (or none). "
-    "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style, "
-    "baseRate, projectedEst, and the board summary). "
-    "baseRate is the measured historical landing rate for that market × agreement × probability "
-    "bucket; projectedEst is an approximate publish estimate at neutral coherence. "
-    "Picking a low-baseRate candidate will usually fail to publish regardless of coherence — "
-    "prefer candidates whose projectedEst clears the publish bar when the story is otherwise equal. "
-    "Use the board summary (market mix, scoring environment, recent AI hit rate) to avoid "
-    "over-concentrating on one market type when the environment argues against it. "
+    "You are a conservative football analyst. For each fixture you receive DataGaffer "
+    "simulation signals (xG, sim percents), book odds, and optional modelMath (Poisson λs) — "
+    "NOT pre-chosen dashboard lean chips. "
+    "Pick at most ONE market and lean side per fixture to publish (or none). "
+    "Choose marketKey and lean only from allowedMarkets for that fixture. "
+    "Judge ONLY the provided signals and the board summary. "
+    "Prefer sides where DataGaffer sim and/or book prices support the direction. "
+    "modelMath is optional context — do not rubber-stamp it over sim/book. "
     "Do not invent stats, injuries, lineups, or odds. "
     "Do NOT return a numeric 0-100 score — estimated publish chance is computed downstream from "
-    "measured market hit rates (keyed by source agreement) plus your coherence judgment. "
-    "For the chosen candidate set: "
-    "verdict='publish' or 'skip'; "
-    "coherence 0-3 (do drivers and match style support this market and direction); "
-    "concerns as a short string list of red flags (each will reduce the estimate); "
+    "measured market hit rates (keyed by source agreement vs DG/book) plus your coherence judgment. "
+    "For each pick: verdict='publish' or 'skip'; "
+    "coherence 0-3 (do the signals support this market and direction); "
+    "concerns as a short string list of red flags; "
     "risk as one short sentence for the single biggest thing that could go wrong (display only). "
     "Respond with JSON only: "
-    '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","verdict":"publish",'
+    '{"picks":[{"fixtureId":123,"marketKey":"goals_2_5","lean":"Over","verdict":"publish",'
     '"coherence":0-3,'
     '"concerns":["optional flag"],"risk":"optional one-liner",'
     '"reason":"one short plain sentence"}]}.'
@@ -208,7 +205,12 @@ def fixture_group_payload(
     *,
     calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Build fixture JSON; shuffle candidates with a fixture-seeded RNG."""
+    """Build fixture JSON from the DataGaffer signal pack (no lean candidates)."""
+    _ = calibration  # kept for call-site compatibility
+    pack = group.get("signal_pack")
+    if isinstance(pack, dict) and pack:
+        return dict(pack)
+    # Legacy fallback: shuffle pre-built candidates if present.
     candidates = list(group.get("candidates") or [])
     fid = group.get("fixture_id")
     try:
@@ -343,12 +345,16 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
             continue
         fid = row.get("fixtureId", row.get("fixture_id", row.get("PredictionId")))
         mkey = row.get("marketKey", row.get("market_key", row.get("Market")))
+        lean_raw = row.get("lean", row.get("Lean", row.get("side", row.get("Side"))))
         reason = row.get("reason", row.get("Reason", "")) or ""
         try:
             fid_i = int(fid)
         except (TypeError, ValueError):
             continue
         if not mkey:
+            continue
+        lean_s = str(lean_raw).strip() if lean_raw is not None else ""
+        if lean_s and not is_valid_ai_lean(str(mkey), lean_s):
             continue
 
         has_components = any(
@@ -409,6 +415,7 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
             {
                 "fixture_id": fid_i,
                 "market_key": str(mkey),
+                "lean": lean_s or None,
                 "score": int(score_i),
                 "approve": approve_b,
                 "reason": str(reason).strip()[:512],
@@ -488,39 +495,61 @@ def _finalize_score_for_candidate(
 
 
 def gate_screen_scores(
-    candidates: List[Dict[str, Any]],
+    items: List[Dict[str, Any]],
     scores: List[Dict[str, Any]],
     *,
     min_score: Optional[int] = None,
     calibration: Optional[Dict[Any, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Keep approved scores >= min_score that match a known candidate.
+    Keep approved scores >= min_score.
+    Signal mode: scores carry lean; items are fixture predictions (or groups with prediction).
+    Legacy mode: items are pre-built candidates matched by (fixture_id, market_key).
     One pick per fixture (highest score wins).
-    Recomputes scores from measured base rate × judgment.
     """
     from dg.report.market_reliability import agreement_tier_from_candidate
 
     threshold = int(min_score if min_score is not None else config.AI_VET_MIN_SCORE)
-    by_key = {
-        (int(c["fixture_id"]), str(c.get("market_key") or "")): c
-        for c in candidates
-        if c.get("fixture_id") is not None and c.get("market_key")
-    }
+    by_cand_key: Dict[Tuple[int, str], Dict[str, Any]] = {}
+    by_fid: Dict[int, Dict[str, Any]] = {}
+    for item in items:
+        if item.get("fixture_id") is None:
+            continue
+        try:
+            fid = int(item["fixture_id"])
+        except (TypeError, ValueError):
+            continue
+        pred = item.get("prediction") if isinstance(item.get("prediction"), dict) else item
+        by_fid[fid] = pred
+        if item.get("market_key"):
+            by_cand_key[(fid, str(item.get("market_key") or ""))] = item
+
     best_by_fixture: Dict[int, Tuple[int, Dict[str, Any]]] = {}
     for s in scores:
-        key = (int(s["fixture_id"]), str(s["market_key"]))
-        cand = by_key.get(key)
-        if cand is None:
+        try:
+            fid = int(s["fixture_id"])
+            mkey = str(s["market_key"])
+        except (TypeError, ValueError, KeyError):
             continue
         if not s.get("approve"):
             continue
+
+        lean = s.get("lean")
+        cand: Optional[Dict[str, Any]] = None
+        # Prefer pre-built candidates (unit tests / legacy); else materialize from signals.
+        cand = by_cand_key.get((fid, mkey))
+        if cand is None and lean:
+            pred = by_fid.get(fid)
+            if pred is not None:
+                cand = materialize_ai_candidate(pred, mkey, str(lean))
+        if cand is None:
+            continue
+
         final_score, score_source, reli = _finalize_score_for_candidate(
             s, cand, calibration=calibration
         )
         if final_score < threshold:
             continue
-        fid = int(s["fixture_id"])
         components = s.get("components") if isinstance(s.get("components"), dict) else None
         if isinstance(components, dict):
             components = {
@@ -859,7 +888,7 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
 
 
 def _build_vet_context(day_key: str) -> Dict[str, Any]:
-    """Load today's dashboard predictions and build the light-floor AI candidate pool."""
+    """Load today's fixtures and build DataGaffer signal packs for AI selection."""
     ctx = load_strongest_day(date=day_key)
     market_hit_rates = None
     scoring_env = ctx.get("scoring_env")
@@ -877,14 +906,9 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
         ai_scoreboard = recent_ai_performance(conn)
     finally:
         conn.close()
-    # AI pool: light floors on dashboard markets (not Strongest hard gates / AUC).
-    groups = build_ai_vet_fixture_groups(
-        ctx.get("predictions") or [],
-        top_n=config.AI_VET_MAX_CANDIDATES,
-        market_hit_rates=market_hit_rates,
-    )
+    groups = build_ai_signal_fixture_groups(ctx.get("predictions") or [])
     ctx["vet_groups"] = groups
-    ctx["vet_candidates"] = flatten_vet_groups(groups)
+    ctx["vet_candidates"] = [g.get("prediction") or g for g in groups]
     ctx["fallback_picks"] = ctx.get("picks") or build_strongest_picks(
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
@@ -902,7 +926,7 @@ def vet_strongest_for_day(
     chat_fn=None,
 ) -> Dict[str, Any]:
     """
-    Load top-N light-floor dashboard-pool candidates per fixture, LLM-pick markets, persist.
+    Load fixture signal packs, LLM-pick market+lean, persist approvals.
     chat_fn: injectable (system, user) -> str for tests.
     """
     from dg.report.loaders import today_wat
@@ -939,22 +963,22 @@ def vet_strongest_for_day(
 
     ctx = _build_vet_context(day_key)
     groups = list(ctx.get("vet_groups") or [])
-    candidates = list(ctx.get("vet_candidates") or [])
+    fixtures = list(ctx.get("vet_candidates") or [])
     calibration = ctx.get("calibration") or {}
     scoring_env = ctx.get("scoring_env")
     board = build_board_envelope(
         groups,
-        candidates,
+        [],
         scoring_env=scoring_env,
         ai_scoreboard=ctx.get("ai_scoreboard"),
     )
     summary["n_fixtures"] = len(groups)
-    summary["n_candidates"] = len(candidates)
+    summary["n_candidates"] = len(groups)
     if not groups:
         summary["skipped_no_candidates"] = True
         # Leave any prior same-day AI picks and board note intact.
         summary["message"] = (
-            "No dashboard pool candidates to vet — existing AI picks left unchanged"
+            "No DataGaffer signal fixtures to vet — existing AI picks left unchanged"
         )
         logger.info("AI vet: %s", summary["message"])
         return summary
@@ -975,7 +999,7 @@ def vet_strongest_for_day(
                 ],
             }
             user = (
-                f"For each fixture below, pick at most one market candidate to publish "
+                f"For each fixture below, pick at most one marketKey and lean to publish "
                 f"for {day_key} (batch {bi}/{len(batches)}). "
                 f"Return component judgments (coherence, concerns, risk, verdict). "
                 f"Use the board summary to avoid over-concentrating on one market type. "
@@ -1002,12 +1026,12 @@ def vet_strongest_for_day(
             all_scores.extend(batch_scores)
 
         approved = gate_screen_scores(
-            candidates, all_scores, calibration=calibration
+            fixtures, all_scores, calibration=calibration
         )
         summary["soft_fallback"] = False
         if not approved and all_scores and config.AI_VET_SOFT_FALLBACK:
             soft = gate_screen_scores(
-                candidates,
+                fixtures,
                 all_scores,
                 min_score=0,
                 calibration=calibration,
@@ -1028,7 +1052,7 @@ def vet_strongest_for_day(
                 )
             else:
                 logger.warning(
-                    "AI vet: LLM returned scores but none matched candidates — no fallback"
+                    "AI vet: LLM returned scores but none matched fixtures — no fallback"
                 )
         elif not approved and all_scores:
             logger.warning("AI vet: LLM returned scores but none passed gate — no fallback")
@@ -1063,7 +1087,7 @@ def vet_strongest_for_day(
             replace_board_note_for_day(conn, day_key, note="", themes=[], model=model)
 
         summary["message"] = (
-            f"Approved {written} of {len(groups)} fixtures ({len(candidates)} candidates)"
+            f"Approved {written} of {len(groups)} signal fixtures"
         )
         logger.info("AI vet: %s", summary)
         return summary
