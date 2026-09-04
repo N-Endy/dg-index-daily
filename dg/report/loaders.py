@@ -26,6 +26,30 @@ def get_connection():
     return init_db(connect())
 
 
+def load_latest_projections(conn, fixture_ids: Sequence[int]) -> Dict[int, Dict[str, Any]]:
+    """Latest fixture_projection row per fixture_id (one query)."""
+    ids = [int(x) for x in fixture_ids]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""
+        SELECT fp.*
+        FROM fixture_projection fp
+        INNER JOIN (
+            SELECT fixture_id, MAX(observed_at) AS observed_at
+            FROM fixture_projection
+            WHERE fixture_id IN ({placeholders})
+            GROUP BY fixture_id
+        ) latest
+          ON latest.fixture_id = fp.fixture_id
+         AND latest.observed_at = fp.observed_at
+        """,
+        ids,
+    ).fetchall()
+    return {int(r["fixture_id"]): dict(r) for r in rows}
+
+
 def parse_market_filters(raw: Optional[Sequence[str]]) -> List[Tuple[str, str]]:
     """
     Parse repeated ``m`` query values of the form ``key:side``.
@@ -233,6 +257,9 @@ def load_dashboard_context(
 
         from dg.leagues import attach_league_display
 
+        # Batch-load latest projections once (avoids N+1 per prediction).
+        proj_by_id = load_latest_projections(conn, [int(r["fixture_id"]) for r in rows])
+
         predictions: List[Dict[str, Any]] = []
         dates: set = set()
         leagues: set = set()
@@ -279,17 +306,7 @@ def load_dashboard_context(
                     continue
 
             # Attach latest projection baselines if available
-            proj = conn.execute(
-                """
-                SELECT home_win_pct, draw_pct, away_win_pct, book_odds_json,
-                       sim_xg_home, sim_xg_away, sim_stats_json,
-                       over_2_5_pct, btts_pct, matchup_pace_score
-                FROM fixture_projection
-                WHERE fixture_id = ?
-                ORDER BY observed_at DESC LIMIT 1
-                """,
-                (d["fixture_id"],),
-            ).fetchone()
+            proj = proj_by_id.get(int(d["fixture_id"]))
             if proj:
                 d["sim_xg_home"] = proj["sim_xg_home"]
                 d["sim_xg_away"] = proj["sim_xg_away"]

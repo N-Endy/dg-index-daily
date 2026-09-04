@@ -191,3 +191,32 @@ def test_apply_scoring_env_dampens_over_probs(monkeypatch):
     assert out["goals_2_5"]["scoring_env_dampened"] is True
     assert out["goals_3_5"]["prob"] == 0.60
     assert out["corners_9_5"]["prob"] == 0.70
+
+
+def test_dampen_after_calib_survives_in_pipeline(monkeypatch):
+    """Calibration must not undo scoring-env dampen (order: calib then dampen)."""
+    from dg.model.supervised import apply_market_prob_calibration
+    from dg.report.scoring_env import apply_scoring_env_to_markets
+
+    monkeypatch.setattr(config, "SCORING_ENV_DAMPEN_ENABLED", True)
+    monkeypatch.setattr(config, "MARKET_PROB_CALIBRATION_ENABLED", True)
+    markets = {
+        "version": "t",
+        "goals_2_5": {"lean": "Over", "prob": 0.80, "confidence": "high"},
+    }
+    # Identity calib (empty params) still sets prob from prob_raw.
+    calibrated = apply_market_prob_calibration(markets, {})
+    assert calibrated["goals_2_5"]["prob"] == pytest.approx(0.80)
+    hot = {"stretched": True, "over_prob_dampen": 0.90}
+    final = apply_scoring_env_to_markets(calibrated, hot)
+    assert final["goals_2_5"]["prob"] == pytest.approx(0.72)
+    assert final["goals_2_5"]["prob_raw"] == pytest.approx(0.80)
+    assert final["goals_2_5"]["scoring_env_dampened"] is True
+    # Re-running calib after dampen would wipe — ensure callers do not; simulate wrong order.
+    wiped = apply_market_prob_calibration(final, {})
+    assert wiped["goals_2_5"]["prob"] == pytest.approx(0.80)
+    # Correct order leaves dampen intact when dampen is last:
+    correct = apply_scoring_env_to_markets(
+        apply_market_prob_calibration(markets, {}), hot
+    )
+    assert correct["goals_2_5"]["prob"] == pytest.approx(0.72)

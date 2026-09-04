@@ -125,14 +125,8 @@ def agreement_tier_label_plain(tier: str) -> str:
     return AGREEMENT_TIER_LABELS.get(tier, tier)
 
 
-def market_hit_rates_from_backtest(conn) -> Dict[str, float]:
-    """
-    Return market_key -> rule hit_rate from evaluate_joined when enough labels exist.
-    Used when STRONGEST_USE_MARKET_HIT_RATES=1.
-    """
-    from dg.model.evaluate import evaluate_joined
-
-    summary: Dict[str, Any] = evaluate_joined(conn)
+def hit_rates_from_evaluate_summary(summary: Dict[str, Any]) -> Dict[str, float]:
+    """Extract market_key -> rule hit_rate from an evaluate_joined summary."""
     min_graded = config.STRONGEST_MARKET_HIT_MIN_GRADED
     out: Dict[str, float] = {}
     for mkey, entry in (summary.get("markets") or {}).items():
@@ -142,6 +136,18 @@ def market_hit_rates_from_backtest(conn) -> Dict[str, float]:
         if hr is not None and n_graded >= min_graded:
             out[str(mkey)] = float(hr)
     return out
+
+
+def market_hit_rates_from_backtest(conn) -> Dict[str, float]:
+    """
+    Return market_key -> rule hit_rate from evaluate_joined when enough labels exist.
+    Used when STRONGEST_USE_MARKET_HIT_RATES=1.
+    Prefer seed_market_hit_rates_cache(hit_rates_from_evaluate_summary(...)) after
+    daily evaluate_joined so Strongest/vet avoid a second full join.
+    """
+    from dg.model.evaluate import evaluate_joined
+
+    return hit_rates_from_evaluate_summary(evaluate_joined(conn))
 
 
 def finalize_calibration_rows(

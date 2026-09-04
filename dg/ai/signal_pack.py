@@ -7,7 +7,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dg.features.matchup import book_lean as book_1x2_lean
 from dg.features.matchup import sim_lean as sim_1x2_lean
 from dg.model.evaluate import _devig, _devig2
-from dg.model.markets import MARKET_ORDER, MARKET_SIDES, _ou_from_odds, _ou_from_pct, _yn_from_odds
+from dg.model.markets import (
+    MARKET_LINE_LADDERS,
+    MARKET_ORDER,
+    MARKET_SIDES,
+    _ou_from_odds,
+    _ou_from_pct,
+    _pct_key_for_line,
+    _yn_from_odds,
+    select_line,
+)
 from dg.web.plain_language import (
     agreement_hint,
     confidence_blurb,
@@ -122,6 +131,35 @@ def _book_dict(pred: Dict[str, Any]) -> Dict[str, Any]:
         except (json.JSONDecodeError, TypeError):
             return {}
     return {}
+
+
+def _markets_dict(pred: Dict[str, Any]) -> Dict[str, Any]:
+    markets = pred.get("markets")
+    if markets is None and pred.get("markets_json"):
+        try:
+            markets = json.loads(pred["markets_json"])
+        except (json.JSONDecodeError, TypeError):
+            markets = {}
+    return markets if isinstance(markets, dict) else {}
+
+
+def _prop_sim_over_pct(pred: Dict[str, Any], market_key: str) -> Optional[float]:
+    """DG over-% for corners/shots/SOT using markets line when present, else select_line."""
+    sim = _sim_dict(pred)
+    perc = sim.get("percents") if isinstance(sim.get("percents"), dict) else {}
+    markets = _markets_dict(pred)
+    m = markets.get(market_key) if isinstance(markets.get(market_key), dict) else {}
+    ladder = MARKET_LINE_LADDERS.get(market_key)
+    if m.get("line") is not None and ladder:
+        pattern = ladder[0]
+        try:
+            key = _pct_key_for_line(pattern, float(m["line"]))
+            if perc.get(key) is not None:
+                return float(perc[key])
+        except (TypeError, ValueError):
+            pass
+    _line, pct = select_line(perc, market_key)
+    return float(pct) if pct is not None else None
 
 
 def is_valid_ai_lean(market_key: str, lean: Any) -> bool:
@@ -304,12 +342,8 @@ def dg_book_sides_for_market(
         return dg, bk
     if market_key == "fh_over_0_5":
         return None, _ou_from_odds(book.get("fh_over_0_5"), book.get("fh_under_0_5"))
-    if market_key == "corners_9_5":
-        return _ou_from_pct(_pct("corners_over_9_5_pct")), None
-    if market_key == "shots_25_5":
-        return _ou_from_pct(_pct("shots_over_25_5_pct")), None
-    if market_key == "sot_8_5":
-        return _ou_from_pct(_pct("sot_over_8_5_pct")), None
+    if market_key in ("corners_9_5", "shots_25_5", "sot_8_5"):
+        return _ou_from_pct(_prop_sim_over_pct(pred, market_key)), None
     if market_key == "cards_3_5":
         cards = sim.get("cards") if isinstance(sim.get("cards"), dict) else {}
         total = _as_float(cards.get("total"))
@@ -420,12 +454,9 @@ def reference_prob_for_lean(
             except (TypeError, ValueError):
                 pass
         return None
-    if market_key == "corners_9_5":
-        return _side_from_over(_pct("corners_over_9_5_pct"))
-    if market_key == "shots_25_5":
-        return _side_from_over(_pct("shots_over_25_5_pct"))
-    if market_key == "sot_8_5":
-        return _side_from_over(_pct("sot_over_8_5_pct"))
+    if market_key in ("corners_9_5", "shots_25_5", "sot_8_5"):
+        over_pct = _prop_sim_over_pct(pred, market_key)
+        return _side_from_over(_pct_to_unit(over_pct) if over_pct is not None else None)
     if market_key == "cards_3_5":
         return None
     return None

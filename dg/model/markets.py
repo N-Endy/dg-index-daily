@@ -131,10 +131,24 @@ def _num(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _conf(score: float, matchup: Dict[str, Any], cfg: Dict[str, Any]) -> str:
+def _conf(
+    score: float,
+    matchup: Dict[str, Any],
+    cfg: Dict[str, Any],
+    *,
+    p_pos: Optional[float] = None,
+) -> str:
+    """Confidence from style |score|, or from Poisson/sim margin when p_pos drives lean."""
     c = cfg.get("confidence") or {}
     hist = min(int(matchup.get("history_n_home") or 0), int(matchup.get("history_n_away") or 0))
-    abs_s = abs(score)
+    if p_pos is not None:
+        try:
+            # |p-0.5|*2 maps 50%→0, 65%→0.30 (matches high_abs_score_gte default).
+            abs_s = abs(float(p_pos) - 0.5) * 2.0
+        except (TypeError, ValueError):
+            abs_s = abs(score)
+    else:
+        abs_s = abs(score)
     high = float(c.get("high_abs_score_gte", 0.30))
     med = float(c.get("medium_abs_score_gte", 0.12))
     min_hist = int(c.get("min_history_for_high", 1))
@@ -342,7 +356,7 @@ def predict_markets(
         key="goals_2_5",
         label="Goals O/U 2.5",
         lean=g_lean,
-        confidence=_conf(g_score, matchup, cfg),
+        confidence=_conf(g_score, matchup, cfg, p_pos=g_p_pos if p_over is not None else None),
         score=g_score,
         drivers=g_drv,
         dg_lean=_ou_from_pct(perc.get("over_2_5_pct")),
@@ -369,20 +383,19 @@ def predict_markets(
         if p_over35 is not None
         else _binary_lean(g35_score, "Over", "Under")
     )
+    g35_p_pos = float(p_over35) if p_over35 is not None else _heuristic_p_pos(g35_score)
     out["goals_3_5"] = _pack(
         key="goals_3_5",
         label="Goals O/U 3.5",
         lean=g35_lean,
-        confidence=_conf(g35_score, matchup, cfg),
+        confidence=_conf(
+            g35_score, matchup, cfg, p_pos=g35_p_pos if p_over35 is not None else None
+        ),
         score=g35_score,
         drivers=g35_drv,
         dg_lean=_ou_from_pct(perc.get("over_3_5_pct")),
         book_lean=_ou_from_odds(book.get("over_3_5"), book.get("under_3_5")),
-        prob=_lean_side_prob(
-            float(p_over35) if p_over35 is not None else _heuristic_p_pos(g35_score),
-            g35_lean,
-            "Over",
-        ),
+        prob=_lean_side_prob(g35_p_pos, g35_lean, "Over"),
         line=3.5,
     )
 
@@ -400,11 +413,12 @@ def predict_markets(
         b_w,
     )
     b_lean = _lean_from_prob(_num(p_btts, 0.5), "Yes", "No") if p_btts is not None else _binary_lean(b_score, "Yes", "No")
+    b_p_pos = float(p_btts) if p_btts is not None else None
     out["btts"] = _pack(
         key="btts",
         label="BTTS",
         lean=b_lean,
-        confidence=_conf(b_score, matchup, cfg),
+        confidence=_conf(b_score, matchup, cfg, p_pos=b_p_pos),
         score=b_score,
         drivers=b_drv,
         dg_lean=("Yes" if _num(perc.get("btts_pct"), 50) >= 50 else "No") if perc.get("btts_pct") is not None else None,
@@ -544,32 +558,35 @@ def predict_markets(
     fho_w = cfg.get("fh_over_0_5") or {}
     sim_fh_p = _fh_sim_over_p(fh_xg_t)
     sim_fh_bias = (float(sim_fh_p) - 0.5) * 2.0 if sim_fh_p is not None else 0.0
-    fho_score, _, fho_drv = _weighted(
-        {
-            "poisson_fh_over_bias": (_num(p_fho, 0.5) - 0.5) * 2.0 if p_fho is not None else 0.0,
-            "agix_sum": (agix_sum - 100.0) / 100.0,
-            "pace_clash": (pace - 100.0) / 100.0,
-            "fh_xg_total_bias": (fh_xg_t - 0.5) / 1.0 if fh_xg_t else (pace - 100.0) / 100.0,
-            "sim_fh_over_bias": sim_fh_bias,
-        },
-        fho_w,
-    )
+    fho_components = {
+        "poisson_fh_over_bias": (_num(p_fho, 0.5) - 0.5) * 2.0 if p_fho is not None else 0.0,
+        "agix_sum": (agix_sum - 100.0) / 100.0,
+        "pace_clash": (pace - 100.0) / 100.0,
+        "sim_fh_over_bias": sim_fh_bias,
+    }
+    # Prefer Poisson-fair sim FH transform; drop linear (λ-0.5) when sim bias is present.
+    if sim_fh_p is None:
+        fho_components["fh_xg_total_bias"] = (
+            (fh_xg_t - math.log(2)) / 1.0 if fh_xg_t else (pace - 100.0) / 100.0
+        )
+    fho_score, _, fho_drv = _weighted(fho_components, fho_w)
     fho_lean = _lean_from_prob(_num(p_fho, 0.5), "Over", "Under") if p_fho is not None else _binary_lean(fho_score, "Over", "Under")
     fh_over_book = _ou_from_odds(book.get("fh_over_0_5"), book.get("fh_under_0_5"))
     if sim_fh_p is not None:
         fh_dg = "Over" if sim_fh_p >= 0.5 else "Under"
     else:
         fh_dg = "Over" if fh_xg_t >= math.log(2) else ("Under" if fh_xg_t > 0 else None)
+    fho_p = float(p_fho) if p_fho is not None else None
     out["fh_over_0_5"] = _pack(
         key="fh_over_0_5",
         label="FH O/U 0.5",
         lean=fho_lean,
-        confidence=_conf(fho_score, matchup, cfg),
+        confidence=_conf(fho_score, matchup, cfg, p_pos=fho_p),
         score=fho_score,
         drivers=fho_drv,
         dg_lean=fh_dg,
         book_lean=fh_over_book,
-        prob=_lean_side_prob(float(p_fho) if p_fho is not None else None, fho_lean, "Over"),
+        prob=_lean_side_prob(fho_p, fho_lean, "Over"),
         line=0.5,
     )
 
@@ -585,7 +602,12 @@ def predict_markets(
         },
         c_w,
     )
-    c_lean = _binary_lean(c_score, "Over", "Under")
+    c_p_over = _sim_pct_p_pos(corners_pct, c_score)
+    c_lean = (
+        _lean_from_prob(c_p_over, "Over", "Under")
+        if corners_pct is not None
+        else _binary_lean(c_score, "Over", "Under")
+    )
     out["corners_9_5"] = _pack(
         key="corners_9_5",
         label=f"Corners O/U {corners_line}",
@@ -595,7 +617,7 @@ def predict_markets(
         drivers=c_drv,
         dg_lean=_ou_from_pct(corners_pct),
         book_lean=None,
-        prob=_lean_side_prob(_sim_pct_p_pos(corners_pct, c_score), c_lean, "Over"),
+        prob=_lean_side_prob(c_p_over, c_lean, "Over"),
         line=corners_line,
     )
 
@@ -610,7 +632,12 @@ def predict_markets(
         },
         s_w,
     )
-    s_lean = _binary_lean(s_score, "Over", "Under")
+    s_p_over = _sim_pct_p_pos(shots_pct, s_score)
+    s_lean = (
+        _lean_from_prob(s_p_over, "Over", "Under")
+        if shots_pct is not None
+        else _binary_lean(s_score, "Over", "Under")
+    )
     out["shots_25_5"] = _pack(
         key="shots_25_5",
         label=f"Shots O/U {shots_line}",
@@ -620,7 +647,7 @@ def predict_markets(
         drivers=s_drv,
         dg_lean=_ou_from_pct(shots_pct),
         book_lean=None,
-        prob=_lean_side_prob(_sim_pct_p_pos(shots_pct, s_score), s_lean, "Over"),
+        prob=_lean_side_prob(s_p_over, s_lean, "Over"),
         line=shots_line,
     )
 
@@ -636,7 +663,12 @@ def predict_markets(
         },
         so_w,
     )
-    so_lean = _binary_lean(so_score, "Over", "Under")
+    so_p_over = _sim_pct_p_pos(sot_pct, so_score)
+    so_lean = (
+        _lean_from_prob(so_p_over, "Over", "Under")
+        if sot_pct is not None
+        else _binary_lean(so_score, "Over", "Under")
+    )
     out["sot_8_5"] = _pack(
         key="sot_8_5",
         label=f"SOT O/U {sot_line}",
@@ -646,7 +678,7 @@ def predict_markets(
         drivers=so_drv,
         dg_lean=_ou_from_pct(sot_pct),
         book_lean=None,
-        prob=_lean_side_prob(_sim_pct_p_pos(sot_pct, so_score), so_lean, "Over"),
+        prob=_lean_side_prob(so_p_over, so_lean, "Over"),
         line=sot_line,
     )
 

@@ -4,7 +4,8 @@ version: rule_v2
 weights:
   rating_gap: 0.35             # venue-aware home_rating - away_rating (primary strength)
   pressing_mismatch: 0.15      # home_ppda_z - away_ppda_z
-  pace_clash: 0.03
+  # pace_clash is openness (home+away pace), not a Home edge — used for match character only
+  pace_clash: 0.0
   attack_vs_control_home: 0.12
   attack_vs_control_away: -0.12
   aggression_asymmetry: 0.05

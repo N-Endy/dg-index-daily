@@ -10,6 +10,16 @@ from dg import config
 INDEX_METRICS = list(config.INDEX_KEYS) + ["dgr_index"]
 STRENGTH_METRICS = ["dgrtg", "ortg", "drtg"]
 
+# Batch-predict memoization (cleared at start of predict_upcoming).
+_league_stats_cache: Dict[tuple, Dict[str, Dict[str, float]]] = {}
+_team_features_cache: Dict[tuple, Dict[str, Any]] = {}
+
+
+def clear_feature_caches() -> None:
+    """Drop snapshot-scoped feature memo used by batch predict."""
+    _league_stats_cache.clear()
+    _team_features_cache.clear()
+
 
 def _mean(vals: Sequence[float]) -> Optional[float]:
     return statistics.mean(vals) if vals else None
@@ -61,6 +71,10 @@ def league_stats(
     conn, snapshot_id: int, league_id: Optional[int]
 ) -> Dict[str, Dict[str, float]]:
     """Per-metric mean/stdev within a league for one snapshot."""
+    cache_key = (snapshot_id, league_id)
+    cached = _league_stats_cache.get(cache_key)
+    if cached is not None:
+        return cached
     if league_id is None:
         rows = conn.execute(
             "SELECT * FROM dg_team_rating WHERE snapshot_id = ?",
@@ -95,6 +109,7 @@ def league_stats(
         sd = _stdev(vals) or 0.0
         if mu is not None:
             out[m] = {"mean": mu, "stdev": sd}
+    _league_stats_cache[cache_key] = out
     return out
 
 
@@ -114,12 +129,19 @@ def build_team_features(
     *,
     windows: Sequence[int] = (5, 10),
 ) -> Dict[str, Any]:
+    cache_key = (snapshot_id, team_id)
+    cached = _team_features_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     row = conn.execute(
         "SELECT * FROM dg_team_rating WHERE snapshot_id = ? AND team_id = ?",
         (snapshot_id, team_id),
     ).fetchone()
     if row is None:
-        return {"team_id": team_id, "missing": True}
+        missing = {"team_id": team_id, "missing": True}
+        _team_features_cache[cache_key] = missing
+        return missing
 
     current = dict(row)
     hist = history_for_team(conn, team_id)
@@ -167,4 +189,5 @@ def build_team_features(
     ):
         feats[f"{m}_z"] = zscore(current.get(m), league.get(m))
 
+    _team_features_cache[cache_key] = feats
     return feats

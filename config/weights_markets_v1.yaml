@@ -55,8 +55,9 @@ fh_over_0_5:
   poisson_fh_over_bias: 0.55
   agix_sum: 0.20
   pace_clash: 0.15
+  # fh_xg_total_bias omitted when sim_fh_over_bias is present (code); keep weight for fallback only
   fh_xg_total_bias: 0.05
-  sim_fh_over_bias: 0.05
+  sim_fh_over_bias: 0.10
 
 corners_9_5:
   pace_clash: 0.35

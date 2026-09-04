@@ -1526,3 +1526,15 @@ def test_signal_pack_omits_dashboard_leans():
     assert cand is not None
     assert cand["lean"] == "Under"
     assert cand["prob"] is not None
+
+
+def test_signal_pack_prop_pct_follows_markets_line():
+    from dg.ai.signal_pack import _prop_sim_over_pct, reference_prob_for_lean
+
+    pred = _vet_prediction(8)
+    pred["markets"] = {"corners_9_5": {"line": 10.5, "lean": "Over", "prob": 0.61}}
+    pred["sim_stats"]["percents"]["corners_over_9_5_pct"] = 52.0
+    pred["sim_stats"]["percents"]["corners_over_10_5_pct"] = 61.0
+    assert _prop_sim_over_pct(pred, "corners_9_5") == 61.0
+    assert reference_prob_for_lean(pred, "corners_9_5", "Over") == 0.61
+    assert reference_prob_for_lean(pred, "corners_9_5", "Under") == 0.39

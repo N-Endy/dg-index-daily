@@ -247,28 +247,20 @@ def cmd_run(args: argparse.Namespace) -> int:
                 }
 
             date_from, date_to = _window_iso(3)
-            # date_to used as exclusive-ish upper bound — fixtures store full ISO
             predictions = predict_upcoming(
-                conn, snapshot_id, date_from=date_from[:10], date_to=None
+                conn, snapshot_id, date_from=date_from, date_to=date_to
             )
-            # Filter to next ~3 days in Python for simplicity
-            cutoff = datetime.now(timezone.utc) + timedelta(days=3)
-            filtered = []
-            for p in predictions:
-                try:
-                    dt = datetime.fromisoformat((p.get("date_utc") or "").replace("Z", "+00:00"))
-                except ValueError:
-                    filtered.append(p)
-                    continue
-                if dt <= cutoff + timedelta(days=1):
-                    filtered.append(p)
-            predictions = filtered
             stages["predictions"] = len(predictions)
 
             backtest = evaluate_joined(conn)
             stages["backtest_n"] = backtest.get("n", 0)
-            from dg.report.market_reliability import store_market_calibration
+            from dg.report.best_leans import seed_market_hit_rates_cache
+            from dg.report.market_reliability import (
+                hit_rates_from_evaluate_summary,
+                store_market_calibration,
+            )
 
+            seed_market_hit_rates_cache(hit_rates_from_evaluate_summary(backtest))
             stages["calibration_rows"] = store_market_calibration(conn, backtest)
             train_if_ready(conn)
             from dg.model.registry import model_version

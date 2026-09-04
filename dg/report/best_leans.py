@@ -509,6 +509,12 @@ def get_market_hit_rates(conn) -> Dict[str, float]:
     return _market_hit_rates_cache
 
 
+def seed_market_hit_rates_cache(rates: Dict[str, float]) -> None:
+    """Seed hit-rate cache from an already-computed evaluate_joined summary."""
+    global _market_hit_rates_cache
+    _market_hit_rates_cache = dict(rates)
+
+
 def clear_market_hit_rates_cache() -> None:
     global _market_hit_rates_cache, _market_aucs_cache
     _market_hit_rates_cache = None

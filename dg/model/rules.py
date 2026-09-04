@@ -139,8 +139,15 @@ def predict_fixture(
     *,
     persist: bool = True,
     scoring_env: Optional[Dict[str, Any]] = None,
+    version: Optional[str] = None,
+    cfg: Optional[Dict[str, Any]] = None,
+    markets_cfg: Optional[Dict[str, Any]] = None,
+    goals_cfg: Optional[Dict[str, Any]] = None,
+    market_calib: Optional[Dict[str, Any]] = None,
+    projections_by_id: Optional[Dict[int, Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    version, cfg = load_config()
+    if version is None or cfg is None:
+        version, cfg = load_config()
     home = build_team_features(conn, int(fixture_row["home_id"]), snapshot_id)
     away = build_team_features(conn, int(fixture_row["away_id"]), snapshot_id)
     matchup = build_matchup(home, away)
@@ -150,34 +157,41 @@ def predict_fixture(
     score, weighted, drivers = _score_matchup(matchup, cfg)
     character = _character(matchup, cfg)
 
-    proj = conn.execute(
-        """
-        SELECT * FROM fixture_projection
-        WHERE fixture_id = ?
-        ORDER BY observed_at DESC LIMIT 1
-        """,
-        (fixture_row["fixture_id"],),
-    ).fetchone()
-    book = json.loads(proj["book_odds_json"]) if proj and proj["book_odds_json"] else {}
-    sim = json.loads(proj["sim_stats_json"]) if proj and proj["sim_stats_json"] else {}
+    if projections_by_id is not None:
+        proj = projections_by_id.get(int(fixture_row["fixture_id"]))
+    else:
+        row = conn.execute(
+            """
+            SELECT * FROM fixture_projection
+            WHERE fixture_id = ?
+            ORDER BY observed_at DESC LIMIT 1
+            """,
+            (fixture_row["fixture_id"],),
+        ).fetchone()
+        proj = dict(row) if row else None
+    book = json.loads(proj["book_odds_json"]) if proj and proj.get("book_odds_json") else {}
+    sim = json.loads(proj["sim_stats_json"]) if proj and proj.get("sim_stats_json") else {}
     if proj:
         matchup["sim_xg_home"] = proj["sim_xg_home"]
         matchup["sim_xg_away"] = proj["sim_xg_away"]
 
     league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
-    goal_probs = predict_goals(matchup, league_avg=league_avg)
+    goal_probs = predict_goals(matchup, league_avg=league_avg, cfg=goals_cfg)
     blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
     lean = _lean_from_probs(blended)
     confidence = _confidence(score, matchup, cfg, probs=blended)
 
-    markets = predict_markets(matchup, book=book, sim=sim, goal_probs=goal_probs)
+    markets = predict_markets(
+        matchup, book=book, sim=sim, goal_probs=goal_probs, cfg=markets_cfg
+    )
+    from dg.model.supervised import apply_market_prob_calibration, load_market_prob_calibration
     from dg.report.scoring_env import apply_scoring_env_to_markets
 
+    # Calibrate first, then dampen — otherwise calib rewrites prob from undampened prob_raw.
+    if market_calib is None:
+        market_calib = load_market_prob_calibration(conn, model_version=version)
+    markets = apply_market_prob_calibration(markets, market_calib)
     markets = apply_scoring_env_to_markets(markets, scoring_env)
-    from dg.model.supervised import apply_market_prob_calibration, load_market_prob_calibration
-
-    calib_params = load_market_prob_calibration(conn, model_version=version)
-    markets = apply_market_prob_calibration(markets, calib_params)
 
     probs_out = {
         "home": round(blended["home"], 4),
@@ -264,6 +278,11 @@ def predict_upcoming(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    from dg.features.team import clear_feature_caches
+    from dg.model.goals import load_goals_config
+    from dg.model.markets import load_markets_config
+    from dg.model.supervised import load_market_prob_calibration
+    from dg.report.loaders import load_latest_projections
     from dg.report.scoring_env import load_scoring_environment
 
     sql = "SELECT * FROM fixture WHERE 1=1"
@@ -272,15 +291,34 @@ def predict_upcoming(
         sql += " AND date_utc >= ?"
         params.append(date_from)
     if date_to:
-        sql += " AND date_utc < ?"
+        sql += " AND date_utc <= ?"
         params.append(date_to)
     sql += " ORDER BY date_utc"
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    clear_feature_caches()
+    version, cfg = load_config()
+    markets_cfg = load_markets_config()
+    goals_cfg = load_goals_config()
+    market_calib = load_market_prob_calibration(conn, model_version=version)
     scoring_env = load_scoring_environment(conn)
+    projections_by_id = load_latest_projections(
+        conn, [int(r["fixture_id"]) for r in rows]
+    )
+
     out = []
     for row in rows:
         pred = predict_fixture(
-            conn, row, snapshot_id, scoring_env=scoring_env
+            conn,
+            row,
+            snapshot_id,
+            scoring_env=scoring_env,
+            version=version,
+            cfg=cfg,
+            markets_cfg=markets_cfg,
+            goals_cfg=goals_cfg,
+            market_calib=market_calib,
+            projections_by_id=projections_by_id,
         )
         if pred:
             out.append(pred)

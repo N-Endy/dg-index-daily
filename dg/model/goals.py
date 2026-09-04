@@ -46,21 +46,12 @@ def _blend_rate(stat: float, xg: float, weight: float) -> float:
 
 def league_avg_ortg(conn, snapshot_id: int, league_id: Optional[int]) -> float:
     """Mean ORtg (attack rate) within a league for the snapshot."""
-    if league_id is None:
-        row = conn.execute(
-            "SELECT AVG(ortg) AS m FROM dg_team_rating WHERE snapshot_id = ? AND ortg IS NOT NULL",
-            (snapshot_id,),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            """
-            SELECT AVG(ortg) AS m FROM dg_team_rating
-            WHERE snapshot_id = ? AND league_id = ? AND ortg IS NOT NULL
-            """,
-            (snapshot_id, league_id),
-        ).fetchone()
-    m = row["m"] if row else None
-    return float(m) if m is not None else 1.35
+    from dg.features.team import league_stats
+
+    stats = league_stats(conn, snapshot_id, league_id)
+    ortg = stats.get("ortg") or {}
+    mean = ortg.get("mean")
+    return float(mean) if mean is not None else 1.35
 
 
 def expected_goals(
