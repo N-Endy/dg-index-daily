@@ -17,7 +17,7 @@ character:
 confidence:
   high_abs_score_gte: 0.30
   medium_abs_score_gte: 0.12
-  min_history_for_high: 3
+  min_history_for_high: 1
   min_consistency_for_high: 0.55
   high_prob_margin: 0.12       # winning 1X2 prob - second place
   medium_prob_margin: 0.05

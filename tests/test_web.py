@@ -25,7 +25,8 @@ def web_client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(config, "ALIASES_DIR", tmp_path / "aliases")
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
-    monkeypatch.setattr("dg.report.loaders.today_wat", lambda: "2026-08-29")
+    fixed_today = lambda: "2026-08-29"
+    monkeypatch.setattr("dg.report.loaders.today_wat", fixed_today)
     config.ensure_dirs()
 
     meta = json.loads((FIXTURES / "dg_meta_sample.json").read_text())
@@ -73,7 +74,12 @@ def web_client(tmp_path, monkeypatch):
     # Import app after paths are patched
     from dg.web import app as webapp
 
-    monkeypatch.setattr(webapp, "today_wat", lambda: "2026-08-29")
+    # Patch every module that bound today_wat at import time (order-dependent otherwise).
+    monkeypatch.setattr(webapp, "today_wat", fixed_today)
+    monkeypatch.setattr("dg.report.ai_picks.today_wat", fixed_today)
+    monkeypatch.setattr("dg.report.best_leans.today_wat", fixed_today)
+    monkeypatch.setattr("dg.report.status.today_wat", fixed_today)
+    monkeypatch.setattr("dg.report.render.today_wat", fixed_today)
     return TestClient(webapp.app)
 
 
@@ -153,7 +159,6 @@ def test_ai_picks_page_renders_without_key(web_client, monkeypatch):
 def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     from dg import config
     from dg.ai.vet_strongest import replace_ai_picks_for_day
-    from dg.report.loaders import today_wat
     from dg.storage.db import connect, init_db
 
     monkeypatch.setattr(config, "OPENAI_API_KEY", "present")
@@ -162,7 +167,7 @@ def test_ai_picks_page_shows_seeded_row(web_client, monkeypatch):
     assert fx is not None
     fixture_id = int(fx["fixture_id"])
     home_logo = fx["home_logo"]
-    day = today_wat()
+    day = "2026-08-29"
     replace_ai_picks_for_day(
         conn,
         day,

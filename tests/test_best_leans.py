@@ -61,7 +61,7 @@ def test_skips_low_confidence():
         markets={
             "goals_2_5": {
                 "lean": "Over",
-                "confidence": "medium",
+                "confidence": "low",
                 "score": 0.5,
                 "prob": 0.8,
                 "dg_lean": "Over",
@@ -70,6 +70,25 @@ def test_skips_low_confidence():
         }
     )
     assert select_strongest_lean(pred) is None
+
+
+def test_medium_confidence_clears_strongest_when_prob_ok():
+    pred = _base_pred(
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "medium",
+                "score": 0.5,
+                "prob": 0.8,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        }
+    )
+    pick = select_strongest_lean(pred)
+    assert pick is not None
+    assert pick["market_key"] == "goals_2_5"
+    assert pick["confidence"] == "medium"
 
 
 def test_skips_low_prob_and_missing_prob():

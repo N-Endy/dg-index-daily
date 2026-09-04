@@ -137,7 +137,7 @@ def _conf(score: float, matchup: Dict[str, Any], cfg: Dict[str, Any]) -> str:
     abs_s = abs(score)
     high = float(c.get("high_abs_score_gte", 0.30))
     med = float(c.get("medium_abs_score_gte", 0.12))
-    min_hist = int(c.get("min_history_for_high", 2))
+    min_hist = int(c.get("min_history_for_high", 1))
     min_cons = float(c.get("min_consistency_for_high", 0.55))
     cons = float(matchup.get("consistency_mean") or 0.55)
     if abs_s >= high and hist >= min_hist and cons >= min_cons:

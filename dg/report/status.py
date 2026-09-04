@@ -56,6 +56,11 @@ def load_status_context() -> Dict[str, Any]:
             "SELECT COUNT(*) AS n FROM ai_pick WHERE day = ?", (day,)
         ).fetchone()
 
+        from dg.report.best_leans import (
+            collect_gate_passing_candidates,
+            get_market_aucs,
+            load_strongest_day,
+        )
         from dg.report.selection_audit import selection_regret_audit
         from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
         from dg.report.scoring_env import load_scoring_environment
@@ -65,8 +70,18 @@ def load_status_context() -> Dict[str, Any]:
         ai_scoreboard = recent_ai_performance(conn)
         scoring_env = load_scoring_environment(conn)
 
+        strongest_ctx = load_strongest_day(date=day)
+        market_aucs = get_market_aucs(conn)
+        n_gate_fixtures = 0
+        for pred in strongest_ctx.get("predictions") or []:
+            if collect_gate_passing_candidates(
+                pred, market_aucs=market_aucs, scoring_env=scoring_env
+            ):
+                n_gate_fixtures += 1
+
         n_fixtures = conn.execute("SELECT COUNT(*) AS n FROM fixture").fetchone()
         n_predictions = conn.execute("SELECT COUNT(*) AS n FROM prediction").fetchone()
+        n_snapshots = conn.execute("SELECT COUNT(*) AS n FROM dg_snapshot").fetchone()
 
         return {
             "generated_at": generated_at,
@@ -86,6 +101,10 @@ def load_status_context() -> Dict[str, Any]:
             "scoring_env": scoring_env,
             "n_fixtures": int(n_fixtures["n"]) if n_fixtures else 0,
             "n_predictions": int(n_predictions["n"]) if n_predictions else 0,
+            "n_snapshots": int(n_snapshots["n"]) if n_snapshots else 0,
+            "strongest_picks_today": int(strongest_ctx.get("n_picks") or 0),
+            "strongest_gate_fixtures_today": n_gate_fixtures,
+            "fixtures_today": int(strongest_ctx.get("n_fixtures") or 0),
             "today_wat": day,
         }
     finally:

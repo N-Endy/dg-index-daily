@@ -116,7 +116,7 @@ We also use **home vs away** splits of these numbers so a team’s home profile 
 
 The **Strongest leans** page posts **at most one** outcome per fixture for the **current Nigerian (WAT) day**. It scores every published market plus the match-winner lean, then keeps a pick only if it clears a conservative bar:
 
-- **High** confidence
+- **Medium or high** confidence (low is excluded)
 - Model probability **≥ 65%** in general (**≥ 80%** for FH Over 0.5); missing probability fails
 - When the scoring environment is unusually hot vs baseline, Over/Yes goals markets face an extra probability bump
 - When DG and/or book signals exist for that market, the lean must **agree with every present signal** (both when both exist)

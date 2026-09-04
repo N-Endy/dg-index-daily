@@ -100,7 +100,11 @@
     <h2>Scores &amp; AI</h2>
     <dl>
       <div><dt>Flashscore last scrape</dt><dd>{{ flashscore_last_scrape or '—' }}</dd></div>
-      <div><dt>AI picks today ({{ today_wat }})</dt><dd>{{ ai_picks_today }}</dd></div>
+      <div><dt>Snapshots stored</dt><dd>{{ n_snapshots }}</dd></div>
+      <div><dt>Fixtures today ({{ today_wat }})</dt><dd>{{ fixtures_today }}</dd></div>
+      <div><dt>Strongest gate fixtures</dt><dd>{{ strongest_gate_fixtures_today }}</dd></div>
+      <div><dt>Strongest picks today</dt><dd>{{ strongest_picks_today }}</dd></div>
+      <div><dt>AI picks today</dt><dd>{{ ai_picks_today }}</dd></div>
       <div><dt>OpenAI key</dt><dd>{{ 'configured' if has_openai_key else 'not set' }}</dd></div>
     </dl>
     {% if score_sources %}

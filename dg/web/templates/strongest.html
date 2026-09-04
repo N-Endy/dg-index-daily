@@ -6,8 +6,8 @@
   <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
   <h1>Strongest leans today</h1>
   <p class="lede">
-    One high-bar market (or match-winner) lean per fixture — high confidence, strong probability,
-    and agreement with DG / book when those signals exist. Still exploratory, not risk-free.
+    One high-bar market (or match-winner) lean per fixture — medium or high confidence, strong
+    probability, and agreement with DG / book when those signals exist. Still exploratory, not risk-free.
   </p>
 </section>
 
@@ -125,7 +125,8 @@
 {% else %}
 <div class="banner banner-info" role="status">
   No fixtures today cleared the strongest-lean bar
-  (high confidence, ≥65% model probability, and full DG/book agreement when both exist).
+  (medium or high confidence, ≥65% model probability — ≥80% for FH Over 0.5 —
+  plus full DG/book agreement when both exist; Overs face a higher bar in a hot scoring window).
   Check the <a href="/?date={{ day }}">dashboard</a> for the full list.
 </div>
 {% endif %}

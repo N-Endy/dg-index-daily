@@ -25,7 +25,7 @@ from dg.web.plain_language import (
 )
 
 MIN_PROB = config.STRONGEST_MIN_PROB
-REQUIRED_CONF = "high"
+REQUIRED_CONF = frozenset({"high", "medium"})
 
 # Markets whose lean probability comes primarily from the Poisson goal model
 POISSON_BACKED = frozenset(
@@ -137,7 +137,7 @@ def _passes_hard_gates(
 ) -> bool:
     if not lean:
         return False
-    if (confidence or "").lower() != REQUIRED_CONF:
+    if (confidence or "").lower() not in REQUIRED_CONF:
         return False
     from dg.report.scoring_env import over_market_prob_bump
 

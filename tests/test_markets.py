@@ -205,3 +205,34 @@ def test_fh_over_wires_sim_fh_bias():
     )
     assert hot["fh_over_0_5"]["score"] > quiet["fh_over_0_5"]["score"]
     assert hot["fh_over_0_5"]["dg_lean"] == "Over"
+
+
+def test_market_conf_high_with_single_snapshot_history():
+    from dg.model.markets import _conf, load_markets_config
+
+    cfg = load_markets_config()
+    assert cfg["confidence"]["min_history_for_high"] == 1
+    assert (
+        _conf(
+            0.35,
+            {
+                "history_n_home": 1,
+                "history_n_away": 1,
+                "consistency_mean": 0.60,
+            },
+            cfg,
+        )
+        == "high"
+    )
+    assert (
+        _conf(
+            0.35,
+            {
+                "history_n_home": 0,
+                "history_n_away": 0,
+                "consistency_mean": 0.60,
+            },
+            cfg,
+        )
+        == "medium"
+    )

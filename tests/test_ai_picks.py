@@ -1318,3 +1318,72 @@ def test_ai_soft_fallback_keeps_best_below_bar(tmp_path, monkeypatch):
     assert picks[0]["ai_score"] < 80
     assert "below bar" in (picks[0].get("ai_reason") or "")
     conn.close()
+
+
+def test_vet_no_candidates_preserves_existing_ai_picks(tmp_path, monkeypatch):
+    from dg import config
+    import dg.ai.vet_strongest as vs
+    from dg.ai.vet_strongest import load_ai_picks, replace_ai_picks_for_day
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
+    config.ensure_dirs()
+
+    # Predictions exist but nothing clears Strongest gates (low confidence).
+    low = {
+        **_vet_prediction(33),
+        "confidence": "low",
+        "probs": {"home": 0.55, "draw": 0.25, "away": 0.20},
+        "markets": {
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "low",
+                "score": 0.1,
+                "prob": 0.80,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        },
+    }
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [low],
+            "picks": [],
+            "empty": False,
+            "scoring_env": {},
+        },
+    )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 33)
+    replace_ai_picks_for_day(
+        conn,
+        "2026-08-30",
+        [
+            {
+                "fixture_id": 33,
+                "market_key": "goals_2_5",
+                "lean": "Over",
+                "ai_score": 60,
+                "ai_reason": "prior pick",
+                "league": "EPL",
+                "home_name": "H",
+                "away_name": "A",
+            }
+        ],
+        model="test",
+    )
+    assert len(load_ai_picks(conn, "2026-08-30")) == 1
+
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=lambda s, u: "{}")
+    assert summary["skipped_no_candidates"] is True
+    assert summary["written"] == 0
+    picks = load_ai_picks(conn, "2026-08-30")
+    assert len(picks) == 1
+    assert picks[0]["ai_reason"] == "prior pick"
+    conn.close()

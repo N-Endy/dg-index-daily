@@ -4,7 +4,7 @@ version: markets_v4
 confidence:
   high_abs_score_gte: 0.30
   medium_abs_score_gte: 0.12
-  min_history_for_high: 2
+  min_history_for_high: 1
   min_consistency_for_high: 0.55
 
 # Positive score → first lean in each pair (Over / Yes / Home)

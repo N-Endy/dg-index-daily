@@ -955,9 +955,9 @@ def vet_strongest_for_day(
     summary["n_candidates"] = len(candidates)
     if not groups:
         summary["skipped_no_candidates"] = True
-        replace_ai_picks_for_day(conn, day_key, [], model=model)
-        replace_board_note_for_day(conn, day_key, note="", themes=[], model=model)
-        summary["message"] = "No strongest picks to vet"
+        # Leave any prior same-day AI picks and board note intact.
+        summary["message"] = "No strongest picks to vet — existing AI picks left unchanged"
+        logger.info("AI vet: %s", summary["message"])
         return summary
 
     batches = _chunked(groups, config.AI_VET_BATCH_SIZE)
