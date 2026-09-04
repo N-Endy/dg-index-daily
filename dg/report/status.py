@@ -57,6 +57,7 @@ def load_status_context() -> Dict[str, Any]:
         ).fetchone()
 
         from dg.report.best_leans import (
+            collect_ai_pool_candidates,
             collect_gate_passing_candidates,
             get_market_aucs,
             load_strongest_day,
@@ -73,11 +74,14 @@ def load_status_context() -> Dict[str, Any]:
         strongest_ctx = load_strongest_day(date=day)
         market_aucs = get_market_aucs(conn)
         n_gate_fixtures = 0
+        n_ai_pool_fixtures = 0
         for pred in strongest_ctx.get("predictions") or []:
             if collect_gate_passing_candidates(
                 pred, market_aucs=market_aucs, scoring_env=scoring_env
             ):
                 n_gate_fixtures += 1
+            if collect_ai_pool_candidates(pred):
+                n_ai_pool_fixtures += 1
 
         n_fixtures = conn.execute("SELECT COUNT(*) AS n FROM fixture").fetchone()
         n_predictions = conn.execute("SELECT COUNT(*) AS n FROM prediction").fetchone()
@@ -104,6 +108,7 @@ def load_status_context() -> Dict[str, Any]:
             "n_snapshots": int(n_snapshots["n"]) if n_snapshots else 0,
             "strongest_picks_today": int(strongest_ctx.get("n_picks") or 0),
             "strongest_gate_fixtures_today": n_gate_fixtures,
+            "ai_pool_fixtures_today": n_ai_pool_fixtures,
             "fixtures_today": int(strongest_ctx.get("n_fixtures") or 0),
             "today_wat": day,
         }

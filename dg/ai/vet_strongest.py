@@ -1,4 +1,4 @@
-"""Screen Strongest leans with an LLM and persist approved AI picks."""
+"""Screen dashboard-pool leans with an LLM and persist approved AI picks."""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,6 @@ from dg.report.best_leans import (
     build_ai_vet_fixture_groups,
     build_strongest_picks,
     flatten_vet_groups,
-    get_market_aucs,
     get_market_hit_rates,
     load_strongest_day,
 )
@@ -32,9 +31,10 @@ PUBLISH_CAP = 0.95
 ECHO_DELTA = 3
 
 SYSTEM_PROMPT = (
-    "You are a conservative football analyst reviewing pre-filtered directional leans "
+    "You are a conservative football analyst reviewing directional leans "
     "from a rule-based ratings model (DataGaffer DG Index). "
-    "For each fixture you may see multiple market candidates that already passed hard gates. "
+    "For each fixture you may see multiple market candidates from today's dashboard board "
+    "(light confidence/probability floors — not the stricter Strongest shortlist). "
     "Pick at most ONE candidate per fixture to publish (or none). "
     "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style, "
     "baseRate, projectedEst, and the board summary). "
@@ -859,9 +859,9 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
 
 
 def _build_vet_context(day_key: str) -> Dict[str, Any]:
+    """Load today's dashboard predictions and build the light-floor AI candidate pool."""
     ctx = load_strongest_day(date=day_key)
     market_hit_rates = None
-    market_aucs: Optional[Dict[str, Any]] = None
     scoring_env = ctx.get("scoring_env")
     calibration: Dict[Any, Dict[str, Any]] = {}
     ai_scoreboard: Dict[str, Any] = {}
@@ -871,26 +871,23 @@ def _build_vet_context(day_key: str) -> Dict[str, Any]:
 
     conn = get_connection()
     try:
-        market_aucs = get_market_aucs(conn)
         if config.STRONGEST_USE_MARKET_HIT_RATES:
             market_hit_rates = get_market_hit_rates(conn)
         calibration = load_market_calibration(conn)
         ai_scoreboard = recent_ai_performance(conn)
     finally:
         conn.close()
+    # AI pool: light floors on dashboard markets (not Strongest hard gates / AUC).
     groups = build_ai_vet_fixture_groups(
         ctx.get("predictions") or [],
         top_n=config.AI_VET_MAX_CANDIDATES,
         market_hit_rates=market_hit_rates,
-        market_aucs=market_aucs,
-        scoring_env=scoring_env,
     )
     ctx["vet_groups"] = groups
     ctx["vet_candidates"] = flatten_vet_groups(groups)
     ctx["fallback_picks"] = ctx.get("picks") or build_strongest_picks(
         ctx.get("predictions") or [],
         market_hit_rates=market_hit_rates,
-        market_aucs=market_aucs,
         scoring_env=scoring_env,
     )
     ctx["calibration"] = calibration
@@ -905,7 +902,7 @@ def vet_strongest_for_day(
     chat_fn=None,
 ) -> Dict[str, Any]:
     """
-    Load top-N gate-passing candidates per fixture, LLM-pick markets, persist approvals.
+    Load top-N light-floor dashboard-pool candidates per fixture, LLM-pick markets, persist.
     chat_fn: injectable (system, user) -> str for tests.
     """
     from dg.report.loaders import today_wat
@@ -956,7 +953,9 @@ def vet_strongest_for_day(
     if not groups:
         summary["skipped_no_candidates"] = True
         # Leave any prior same-day AI picks and board note intact.
-        summary["message"] = "No strongest picks to vet — existing AI picks left unchanged"
+        summary["message"] = (
+            "No dashboard pool candidates to vet — existing AI picks left unchanged"
+        )
         logger.info("AI vet: %s", summary["message"])
         return summary
 

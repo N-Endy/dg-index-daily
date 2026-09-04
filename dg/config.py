@@ -186,7 +186,7 @@ AI_VET_TIMEOUT_SEC = float(os.environ.get("AI_VET_TIMEOUT_SEC", "120"))
 AI_VET_MAX_TOKENS = int(os.environ.get("AI_VET_MAX_TOKENS", "16000"))
 AI_VET_BATCH_SIZE = int(os.environ.get("AI_VET_BATCH_SIZE", "20"))
 AI_VET_TOP_N = int(os.environ.get("AI_VET_TOP_N", "3"))
-# Wider pool for LLM market selection (Strongest UI still uses AI_VET_TOP_N semantics via top_n=1).
+# Wider pool for LLM market selection from the dashboard board (Strongest stays top-1 gated).
 AI_VET_MAX_CANDIDATES = int(os.environ.get("AI_VET_MAX_CANDIDATES", "6"))
 AI_VET_BOARD_NOTE = os.environ.get("AI_VET_BOARD_NOTE", "1").strip().lower() in (
     "1",
@@ -199,6 +199,8 @@ AI_VET_SOFT_FALLBACK = os.environ.get("AI_VET_SOFT_FALLBACK", "1").strip().lower
     "true",
     "yes",
 )
+# Light floor for AI candidate pool (dashboard board); Strongest keeps STRONGEST_MIN_PROB.
+AI_POOL_MIN_PROB = float(os.environ.get("AI_POOL_MIN_PROB", "0.55"))
 
 # Strongest lean selection
 STRONGEST_POISSON_PROB_EPSILON = float(os.environ.get("STRONGEST_POISSON_PROB_EPSILON", "0.03"))

@@ -151,6 +151,22 @@ def _passes_hard_gates(
     return True
 
 
+def _passes_ai_pool_gates(
+    *,
+    lean: Optional[str],
+    confidence: Optional[str],
+    prob: Optional[float],
+) -> bool:
+    """Light floors for AI Picks: medium/high conf, flat prob floor; no agreement/AUC."""
+    if not lean:
+        return False
+    if (confidence or "").lower() not in REQUIRED_CONF:
+        return False
+    if prob is None or prob < float(config.AI_POOL_MIN_PROB):
+        return False
+    return True
+
+
 def _auc_ok(market_key: str, market_aucs: Optional[Dict[str, Any]]) -> bool:
     """Exclude only markets shown, with confidence, to lack discrimination."""
     if not market_aucs:
@@ -255,24 +271,29 @@ def _candidate_from_market(
     *,
     market_aucs: Optional[Dict[str, Any]] = None,
     scoring_env: Optional[Dict[str, Any]] = None,
+    pool: str = "strongest",
 ) -> Optional[Dict[str, Any]]:
     lean = m.get("lean")
     conf = m.get("confidence")
     prob = _as_float(m.get("prob"))
     dg_lean = m.get("dg_lean")
     book_lean = m.get("book_lean")
-    if not _passes_hard_gates(
-        lean=lean,
-        confidence=conf,
-        prob=prob,
-        dg_lean=dg_lean,
-        book_lean=book_lean,
-        market_key=key,
-        scoring_env=scoring_env,
-    ):
-        return None
-    if not _auc_ok(key, market_aucs):
-        return None
+    if pool == "ai":
+        if not _passes_ai_pool_gates(lean=lean, confidence=conf, prob=prob):
+            return None
+    else:
+        if not _passes_hard_gates(
+            lean=lean,
+            confidence=conf,
+            prob=prob,
+            dg_lean=dg_lean,
+            book_lean=book_lean,
+            market_key=key,
+            scoring_env=scoring_env,
+        ):
+            return None
+        if not _auc_ok(key, market_aucs):
+            return None
     assert lean is not None and prob is not None
     agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
     score = _as_float(m.get("score"))
@@ -315,24 +336,29 @@ def _candidate_1x2(
     *,
     market_aucs: Optional[Dict[str, Any]] = None,
     scoring_env: Optional[Dict[str, Any]] = None,
+    pool: str = "strongest",
 ) -> Optional[Dict[str, Any]]:
     lean = pred.get("lean")
     conf = pred.get("confidence")
     prob = _lean_prob_1x2(pred, probs)
     dg_lean = pred.get("dg_sim_lean")
     book_lean = pred.get("book_lean")
-    if not _passes_hard_gates(
-        lean=lean,
-        confidence=conf,
-        prob=prob,
-        dg_lean=dg_lean,
-        book_lean=book_lean,
-        market_key="match_1x2",
-        scoring_env=scoring_env,
-    ):
-        return None
-    if not _auc_ok("match_1x2", market_aucs):
-        return None
+    if pool == "ai":
+        if not _passes_ai_pool_gates(lean=lean, confidence=conf, prob=prob):
+            return None
+    else:
+        if not _passes_hard_gates(
+            lean=lean,
+            confidence=conf,
+            prob=prob,
+            dg_lean=dg_lean,
+            book_lean=book_lean,
+            market_key="match_1x2",
+            scoring_env=scoring_env,
+        ):
+            return None
+        if not _auc_ok("match_1x2", market_aucs):
+            return None
     assert lean is not None and prob is not None
     agree_key, agree_label, agree_sources, agree_n = _agreement_tier(lean, dg_lean, book_lean)
     score = _as_float(pred.get("score"))
@@ -391,6 +417,24 @@ def collect_gate_passing_candidates(
         cand = _candidate_from_market(
             key, m, market_aucs=market_aucs, scoring_env=scoring_env
         )
+        if cand:
+            candidates.append(cand)
+    return candidates
+
+
+def collect_ai_pool_candidates(pred: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """All markets + 1X2 that clear light AI dashboard-pool floors for a fixture."""
+    markets = _markets_dict(pred)
+    probs = _probs_dict(pred)
+    candidates: List[Dict[str, Any]] = []
+    one_x2 = _candidate_1x2(pred, probs, pool="ai")
+    if one_x2:
+        candidates.append(one_x2)
+    for key in MARKET_ORDER:
+        m = markets.get(key)
+        if not isinstance(m, dict):
+            continue
+        cand = _candidate_from_market(key, m, pool="ai")
         if cand:
             candidates.append(cand)
     return candidates
@@ -490,10 +534,25 @@ def select_top_n_candidates(
     market_aucs: Optional[Dict[str, Any]] = None,
     scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Return up to n gate-passing candidates for a fixture, best first."""
+    """Return up to n Strongest gate-passing candidates for a fixture, best first."""
     raw = collect_gate_passing_candidates(
         pred, market_aucs=market_aucs, scoring_env=scoring_env
     )
+    if not raw:
+        return []
+    ranked = _sort_candidates(raw, market_hit_rates=market_hit_rates)
+    top = ranked[: max(1, int(n))]
+    return [_attach_fixture_fields(pred, c) for c in top]
+
+
+def select_top_n_ai_pool_candidates(
+    pred: Dict[str, Any],
+    n: int = 3,
+    *,
+    market_hit_rates: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    """Return up to n light-floor AI pool candidates for a fixture, best first."""
+    raw = collect_ai_pool_candidates(pred)
     if not raw:
         return []
     ranked = _sort_candidates(raw, market_hit_rates=market_hit_rates)
@@ -588,18 +647,18 @@ def build_ai_vet_fixture_groups(
     scoring_env: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Group top-N gate-passing candidates per fixture for LLM market selection.
-    Returns list of {fixture_id, home_name, away_name, ..., candidates: [...]}.
+    Group top-N light-floor dashboard-pool candidates per fixture for LLM selection.
+    market_aucs / scoring_env are accepted for call-site compatibility but unused
+    (AI pool does not apply Strongest agreement/AUC/env bumps).
     """
+    del market_aucs, scoring_env  # unused — keep kwargs for callers
     n = int(top_n if top_n is not None else config.AI_VET_TOP_N)
     groups: List[Dict[str, Any]] = []
     for pred in predictions:
-        cands = select_top_n_candidates(
+        cands = select_top_n_ai_pool_candidates(
             pred,
             n,
             market_hit_rates=market_hit_rates,
-            market_aucs=market_aucs,
-            scoring_env=scoring_env,
         )
         if not cands:
             continue

@@ -1331,7 +1331,7 @@ def test_vet_no_candidates_preserves_existing_ai_picks(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
     config.ensure_dirs()
 
-    # Predictions exist but nothing clears Strongest gates (low confidence).
+    # Predictions exist but nothing clears AI light floors (low confidence).
     low = {
         **_vet_prediction(33),
         "confidence": "low",
@@ -1386,4 +1386,87 @@ def test_vet_no_candidates_preserves_existing_ai_picks(tmp_path, monkeypatch):
     picks = load_ai_picks(conn, "2026-08-30")
     assert len(picks) == 1
     assert picks[0]["ai_reason"] == "prior pick"
+    conn.close()
+
+
+def test_vet_includes_sub_strongest_disagree_market(tmp_path, monkeypatch):
+    """AI pool admits mid-prob / disagree markets that Strongest hard gates reject."""
+    from dg import config
+    import dg.ai.vet_strongest as vs
+    from dg.ai.vet_strongest import load_ai_picks
+    from dg.report.best_leans import (
+        collect_ai_pool_candidates,
+        collect_gate_passing_candidates,
+        select_strongest_lean,
+    )
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "AI_VET_MIN_SCORE", 55)
+    monkeypatch.setattr(config, "AI_VET_BOARD_NOTE", False)
+    monkeypatch.setattr(config, "AI_VET_SOFT_FALLBACK", False)
+    config.ensure_dirs()
+
+    pred = {
+        **_vet_prediction(44),
+        "confidence": "medium",
+        "dg_sim_lean": "Away",
+        "book_lean": "Away",
+        "probs": {"home": 0.58, "draw": 0.22, "away": 0.20},
+        "markets": {
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "medium",
+                "score": 0.25,
+                "prob": 0.60,
+                "dg_lean": "Under",
+                "book_lean": "Under",
+            }
+        },
+    }
+    assert select_strongest_lean(pred) is None
+    assert collect_gate_passing_candidates(pred) == []
+    assert any(c["market_key"] == "goals_2_5" for c in collect_ai_pool_candidates(pred))
+
+    monkeypatch.setattr(
+        vs,
+        "load_strongest_day",
+        lambda date=None: {
+            "day": "2026-08-30",
+            "predictions": [pred],
+            "picks": [],
+            "empty": False,
+            "scoring_env": {},
+        },
+    )
+
+    def fake_chat(system, user):
+        payload = json.loads(user.split("\n", 1)[-1])
+        keys = {c["marketKey"] for c in payload["fixtures"][0]["candidates"]}
+        assert "goals_2_5" in keys
+        return json.dumps(
+            {
+                "picks": [
+                    {
+                        "fixtureId": 44,
+                        "marketKey": "goals_2_5",
+                        "verdict": "publish",
+                        "coherence": 3,
+                        "concerns": [],
+                        "reason": "worth a look despite split sources",
+                    }
+                ]
+            }
+        )
+
+    conn = init_db(connect(config.DB_PATH))
+    _seed_fixture(conn, 44)
+    _seed_calibration(conn, market_key="goals_2_5", band="lt_75", rate=0.62)
+    summary = vs.vet_strongest_for_day(conn, day="2026-08-30", chat_fn=fake_chat)
+    assert summary["skipped_no_candidates"] is False
+    assert summary["n_candidates"] >= 1
+    assert summary["written"] == 1
+    picks = load_ai_picks(conn, "2026-08-30")
+    assert picks[0]["market_key"] == "goals_2_5"
     conn.close()

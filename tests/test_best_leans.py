@@ -5,6 +5,7 @@ from dg import config
 from dg.report.best_leans import (
     MIN_PROB,
     build_strongest_picks,
+    collect_ai_pool_candidates,
     collect_gate_passing_candidates,
     select_strongest_lean,
     select_top_n_candidates,
@@ -89,6 +90,73 @@ def test_medium_confidence_clears_strongest_when_prob_ok():
     assert pick is not None
     assert pick["market_key"] == "goals_2_5"
     assert pick["confidence"] == "medium"
+
+
+def test_ai_pool_includes_mid_prob_and_disagreement_excluded_from_strongest():
+    """AI dashboard pool is wider than Strongest: mid-prob + split sources still enter."""
+    pred = _base_pred(
+        lean="Home",
+        confidence="medium",
+        score=0.2,
+        dg_sim_lean="Away",
+        book_lean="Away",
+        probs={"home": 0.58, "draw": 0.22, "away": 0.20},
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "medium",
+                "score": 0.3,
+                "prob": 0.60,
+                "dg_lean": "Under",
+                "book_lean": "Under",
+            }
+        },
+    )
+    assert select_strongest_lean(pred) is None
+    assert collect_gate_passing_candidates(pred) == []
+    ai = collect_ai_pool_candidates(pred)
+    keys = {c["market_key"] for c in ai}
+    assert "goals_2_5" in keys
+    assert "match_1x2" in keys
+    goals = next(c for c in ai if c["market_key"] == "goals_2_5")
+    assert goals["prob"] == 0.60
+    assert goals["agreement_key"] == "split"
+
+
+def test_ai_pool_rejects_low_confidence_and_below_floor():
+    low_conf = _base_pred(
+        confidence="low",
+        probs={"home": 0.80, "draw": 0.10, "away": 0.10},
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "low",
+                "score": 0.5,
+                "prob": 0.80,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        },
+    )
+    assert collect_ai_pool_candidates(low_conf) == []
+
+    low_prob = _base_pred(
+        confidence="high",
+        dg_sim_lean="Home",
+        book_lean="Home",
+        probs={"home": 0.50, "draw": 0.30, "away": 0.20},
+        markets={
+            "goals_2_5": {
+                "lean": "Over",
+                "confidence": "high",
+                "score": 0.5,
+                "prob": 0.50,
+                "dg_lean": "Over",
+                "book_lean": "Over",
+            }
+        },
+    )
+    assert collect_ai_pool_candidates(low_prob) == []
 
 
 def test_skips_low_prob_and_missing_prob():

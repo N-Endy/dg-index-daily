@@ -127,7 +127,7 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 
 ## AI Picks
 
-**AI Picks** takes today’s top gate-passing market candidates per fixture (not only the single Strongest lean) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). Each candidate includes its measured base hit rate so the model can avoid markets that cannot clear the publish bar. The model returns a coherence judgment, optional concerns, an optional risk line, plus a publish/skip verdict. An **estimated hit chance** (shown as Est. N%) is computed from measured hit rates keyed by **market × source agreement × probability band**, shrunk toward parent aggregates when a bucket is thin, then nudged by the AI screen. It is **not** the model lean percentage (which is often overconfident). Only picks at or above the configured floor (default **55%**) are published by default; if every publish fails that floor, a single best-available soft fallback may still appear with a clear note. A short **board note** may summarise the published set for the day.
+**AI Picks** takes today’s **dashboard** market leans (medium/high confidence, probability at least ~55% — not the stricter Strongest gates) and runs a second screen with an LLM (OpenAI-compatible; default model is configurable). That gives a wider pool than Strongest and a clear distinction: Strongest is the high-bar shortlist; AI is judgment over the broader day board. Each candidate includes its measured base hit rate so the model can avoid markets that cannot clear the publish bar. The model returns a coherence judgment, optional concerns, an optional risk line, plus a publish/skip verdict. An **estimated hit chance** (shown as Est. N%) is computed from measured hit rates keyed by **market × source agreement × probability band**, shrunk toward parent aggregates when a bucket is thin, then nudged by the AI screen. It is **not** the model lean percentage (which is often overconfident). Only picks at or above the configured floor (default **55%**) are published by default; if every publish fails that floor, a single best-available soft fallback may still appear with a clear note. A short **board note** may summarise the published set for the day.
 
 - The AI may only use the fields we send (probability, confidence, DG/book agreement, drivers). It should **not** invent injuries or lineups.
 - No API key → the page explains setup; the matches job stays green.
@@ -136,7 +136,7 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 
 ## How to use this properly
 
-1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the full board (defaults to **today in WAT**; choose **All dates** for the full archive).
+1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM screen of the broader dashboard pool, or the **dashboard** for the full board (defaults to **today in WAT**; choose **All dates** for the full archive).
 2. Optionally open **Market leans** in the sidebar to combine directions — for example BTTS Yes **and** SOT Over **and** Goals 2.5 Over. Use **Match all** (default) so every pick must hold, or **Match any** if one is enough.
 3. Raise **Min probability** / **Min confidence** to keep only stronger market leans. With no market picks selected, those floors apply to the main match-winner lean instead.
 4. Skim **high-confidence** leans first; treat low-confidence as noise.

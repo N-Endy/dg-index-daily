@@ -6,8 +6,9 @@
   <p class="eyebrow">DataGaffer DG Index · {{ day }}</p>
   <h1>AI Picks</h1>
   <p class="lede">
-    Top qualifying market candidates per fixture, chosen by an LLM screen — only published when
-    the estimated hit chance clears the bar. Still exploratory analytics, not betting advice.
+    LLM screen over today’s dashboard market board (light confidence and probability floors) —
+    distinct from the stricter Strongest shortlist. Only published when the estimated hit chance
+    clears the bar. Still exploratory analytics, not betting advice.
   </p>
 </section>
 
@@ -22,7 +23,7 @@
 {% if scoring_env and scoring_env.caution %}
 <div class="banner banner-warn" role="status">
   {{ scoring_env.caution }}
-  Over candidates face a higher Strongest bar while this lasts.
+  Treat Over / Yes candidates cautiously while scoring is stretched.
 </div>
 {% endif %}
 
@@ -32,7 +33,8 @@
   {% if not has_openai_key %}
   See <a href="/guide">How to read this</a> for setup notes.
   {% else %}
-  Compare with <a href="/strongest">Strongest leans</a> for the full high-bar shortlist.
+  Compare with <a href="/strongest">Strongest leans</a> for the strict high-bar shortlist,
+  or the <a href="/?date={{ day }}">dashboard</a> for the full board.
   {% endif %}
 </div>
 {% else %}
