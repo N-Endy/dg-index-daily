@@ -617,7 +617,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             goal_probs = predict_goals(matchup, league_avg=league_avg)
             blended = _blend_1x2(goal_probs, score, cfg)
             lean = _lean_from_probs(blended)
-            confidence = _confidence(score, matchup, cfg, probs=blended)
+            confidence = _confidence(score, matchup, cfg, probs=blended, lean=lean)
             _ = _character(matchup, cfg)
             probs_json = json.dumps(
                 {

@@ -13,6 +13,7 @@ goals_2_5:
   poisson_over_bias: 0.55
   pace_clash: 0.15
   nec_sum: 0.15
+  # xg_total_bias omitted when sim_over_bias is present (code); keep weight for fallback only
   xg_total_bias: 0.10
   sim_over_bias: 0.05
 
@@ -20,6 +21,7 @@ goals_3_5:
   poisson_over_bias: 0.55
   pace_clash: 0.15
   nec_sum: 0.15
+  # xg_total_bias omitted when sim_over_bias is present (code); keep weight for fallback only
   xg_total_bias: 0.10          # (sim_xg_total - 3.5) / 2.0
   sim_over_bias: 0.05
 

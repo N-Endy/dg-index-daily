@@ -180,13 +180,19 @@ def test_apply_scoring_env_dampens_over_probs(monkeypatch):
     monkeypatch.setattr(config, "SCORING_ENV_OVER_PROB_DAMPEN", 0.90)
     markets = {
         "version": "t",
-        "goals_2_5": {"lean": "Over", "prob": 0.70, "confidence": "high"},
+        "goals_2_5": {
+            "lean": "Over",
+            "prob": 0.70,
+            "prob_raw": 0.70,
+            "confidence": "high",
+        },
         "goals_3_5": {"lean": "Under", "prob": 0.60, "confidence": "high"},
         "corners_9_5": {"lean": "Over", "prob": 0.70, "confidence": "high"},
     }
     hot = {"stretched": True, "over_prob_dampen": 0.90}
     out = apply_scoring_env_to_markets(markets, hot)
     assert out["goals_2_5"]["prob"] == pytest.approx(0.63)
+    # Model raw is preserved; dampen only touches displayed prob.
     assert out["goals_2_5"]["prob_raw"] == pytest.approx(0.70)
     assert out["goals_2_5"]["scoring_env_dampened"] is True
     assert out["goals_3_5"]["prob"] == 0.60
@@ -207,9 +213,11 @@ def test_dampen_after_calib_survives_in_pipeline(monkeypatch):
     # Identity calib (empty params) still sets prob from prob_raw.
     calibrated = apply_market_prob_calibration(markets, {})
     assert calibrated["goals_2_5"]["prob"] == pytest.approx(0.80)
+    assert calibrated["goals_2_5"]["prob_raw"] == pytest.approx(0.80)
     hot = {"stretched": True, "over_prob_dampen": 0.90}
     final = apply_scoring_env_to_markets(calibrated, hot)
     assert final["goals_2_5"]["prob"] == pytest.approx(0.72)
+    # Model prob_raw must stay as model output, not be overwritten by dampen.
     assert final["goals_2_5"]["prob_raw"] == pytest.approx(0.80)
     assert final["goals_2_5"]["scoring_env_dampened"] is True
     # Re-running calib after dampen would wipe — ensure callers do not; simulate wrong order.
@@ -220,3 +228,4 @@ def test_dampen_after_calib_survives_in_pipeline(monkeypatch):
         apply_market_prob_calibration(markets, {}), hot
     )
     assert correct["goals_2_5"]["prob"] == pytest.approx(0.72)
+    assert correct["goals_2_5"]["prob_raw"] == pytest.approx(0.80)

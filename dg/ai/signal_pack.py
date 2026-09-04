@@ -203,6 +203,24 @@ def build_fixture_signal_pack(pred: Dict[str, Any]) -> Dict[str, Any]:
         if dest not in sim_pcts and pred.get(src_key) is not None:
             sim_pcts[dest] = pred.get(src_key)
 
+    # Include the sim % for each selected prop line (may differ from default 9.5/25.5/8.5).
+    markets = _markets_dict(pred)
+    for market_key in ("corners_9_5", "shots_25_5", "sot_8_5"):
+        ladder = MARKET_LINE_LADDERS.get(market_key)
+        if not ladder:
+            continue
+        pattern = ladder[0]
+        m = markets.get(market_key) if isinstance(markets.get(market_key), dict) else {}
+        line = m.get("line")
+        if line is None:
+            line, _pct_val = select_line(perc, market_key)
+        try:
+            pct_key = _pct_key_for_line(pattern, float(line))
+        except (TypeError, ValueError):
+            continue
+        if perc.get(pct_key) is not None:
+            sim_pcts[pct_key] = perc[pct_key]
+
     book_out = {k: book.get(k) for k in _BOOK_KEYS if book.get(k) is not None}
 
     xg_home = _as_float(xg.get("home"))

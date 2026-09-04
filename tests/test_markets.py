@@ -229,6 +229,72 @@ def test_poisson_conf_follows_prob_margin():
     assert _conf(0.40, matchup, cfg) == "high"  # style |score| path
 
 
+def test_corners_conf_follows_sim_pct_not_style_score():
+    """When sim drives lean, confidence uses |p_over-0.5|*2 even if pace score fights it."""
+    quiet = predict_markets(
+        _base_matchup(pace_clash=70.0),
+        sim={"percents": {"corners_over_9_5_pct": 72}},
+    )
+    assert quiet["corners_9_5"]["lean"] == "Over"
+    # |0.72-0.5|*2 = 0.44 → high with enough history
+    assert quiet["corners_9_5"]["confidence"] == "high"
+
+    under = predict_markets(
+        _base_matchup(pace_clash=160.0),
+        sim={"percents": {"corners_over_9_5_pct": 40}},
+    )
+    assert under["corners_9_5"]["lean"] == "Under"
+    # |0.40-0.5|*2 = 0.20 → medium
+    assert under["corners_9_5"]["confidence"] == "medium"
+
+
+def test_team_o15_book_lean_prefers_two_way_odds():
+    out = predict_markets(
+        _base_matchup(),
+        book={"home_o1_5": 2.40, "home_u1_5": 1.55},
+        goal_probs={"home_over_1_5": 0.55},
+    )
+    assert out["team_goals_home_1_5"]["book_lean"] == "Under"
+
+
+def test_goals_drops_xg_bias_when_sim_pct_present():
+    with_sim = predict_markets(
+        _base_matchup(),
+        sim={"percents": {"over_2_5_pct": 62}, "xg": {"home": 1.8, "away": 1.4}},
+        goal_probs={"over_2_5": 0.55},
+    )
+    drv = " ".join(with_sim["goals_2_5"]["drivers"])
+    assert "xg total" not in drv
+    assert "sim over" in drv or "poisson" in drv.lower()
+
+
+def test_1x2_confidence_follows_margin_not_opposing_style():
+    from dg.model.registry import load_config
+    from dg.model.rules import _confidence
+
+    _, cfg = load_config()
+    matchup = {
+        "history_n_home": 5,
+        "history_n_away": 5,
+        "consistency_mean": 0.60,
+    }
+    # Away lean with narrow margin; large Home-tilting style must not grant high.
+    away_probs = {"home": 0.33, "draw": 0.31, "away": 0.36}  # margin 0.03 → 0.06
+    assert (
+        _confidence(0.45, matchup, cfg, probs=away_probs, lean="Away") == "low"
+    )
+    # Clear Away margin → high from margin*2, even with opposing Home style.
+    clear_away = {"home": 0.25, "draw": 0.25, "away": 0.50}  # margin 0.25 → 0.50
+    assert (
+        _confidence(0.45, matchup, cfg, probs=clear_away, lean="Away") == "high"
+    )
+    # Agreeing style + solid margin still high.
+    home_probs = {"home": 0.48, "draw": 0.27, "away": 0.25}  # margin 0.21 → 0.42
+    assert (
+        _confidence(0.35, matchup, cfg, probs=home_probs, lean="Home") == "high"
+    )
+
+
 def test_market_conf_high_with_single_snapshot_history():
     from dg.model.markets import _conf, load_markets_config
 

@@ -102,10 +102,16 @@ def _confidence(
     cfg: Dict[str, Any],
     *,
     probs: Optional[Dict[str, float]] = None,
+    lean: Optional[str] = None,
 ) -> str:
+    """Confidence from style |score|, or from 1X2 margin when probs drive the lean.
+
+    When blended probs are present, magnitude comes from (top − second) scaled to
+    match high_abs_score_gte / medium_abs_score_gte. Style |score| must not inflate
+    confidence when its sign disagrees with the lean (Home ↔ positive score).
+    """
     c = cfg.get("confidence") or {}
     hist = min(int(matchup.get("history_n_home") or 0), int(matchup.get("history_n_away") or 0))
-    abs_s = abs(score)
     high = float(c.get("high_abs_score_gte", 0.30))
     med = float(c.get("medium_abs_score_gte", 0.12))
     min_hist = int(c.get("min_history_for_high", 1))
@@ -116,18 +122,24 @@ def _confidence(
     if probs:
         ordered = sorted([probs["home"], probs["draw"], probs["away"]], reverse=True)
         margin = ordered[0] - ordered[1]
+        # Map margin onto the same scale as |score| thresholds (0.15 margin → 0.30).
+        abs_s = margin * 2.0
+        # Opposing style may still be large; do not let it override margin magnitude.
+        style_agrees = True
+        if lean == "Home" and score < 0:
+            style_agrees = False
+        elif lean == "Away" and score > 0:
+            style_agrees = False
+        elif lean == "Draw" and abs(score) >= high:
+            style_agrees = False
+        if style_agrees:
+            abs_s = max(abs_s, abs(score) * 0.5)
+    else:
+        abs_s = abs(score)
 
-    high_margin = float(c.get("high_prob_margin", 0.12))
-    med_margin = float(c.get("medium_prob_margin", 0.05))
-
-    if (
-        abs_s >= high
-        and hist >= min_hist
-        and cons >= min_cons
-        and (not probs or margin >= high_margin)
-    ):
+    if abs_s >= high and hist >= min_hist and cons >= min_cons:
         return "high"
-    if abs_s >= med or (probs and margin >= med_margin):
+    if abs_s >= med:
         return "medium"
     return "low"
 
@@ -179,7 +191,7 @@ def predict_fixture(
     goal_probs = predict_goals(matchup, league_avg=league_avg, cfg=goals_cfg)
     blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
     lean = _lean_from_probs(blended)
-    confidence = _confidence(score, matchup, cfg, probs=blended)
+    confidence = _confidence(score, matchup, cfg, probs=blended, lean=lean)
 
     markets = predict_markets(
         matchup, book=book, sim=sim, goal_probs=goal_probs, cfg=markets_cfg

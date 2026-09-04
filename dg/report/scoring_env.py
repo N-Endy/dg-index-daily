@@ -208,8 +208,7 @@ def apply_scoring_env_to_markets(
             continue
         new_prob = max(0.02, min(0.98, prob * factor))
         updated = dict(m)
-        # Always record the pre-dampen (post-calib) value so calib cannot restore undampened %.
-        updated["prob_raw"] = round(prob, 4)
+        # Preserve original model prob_raw (set by calib). Only shrink displayed prob.
         updated["prob"] = round(new_prob, 4)
         updated["scoring_env_dampened"] = True
         out[key] = updated

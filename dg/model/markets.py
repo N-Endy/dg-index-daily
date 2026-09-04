@@ -336,16 +336,16 @@ def predict_markets(
     # --- Goals O/U 2.5 ---
     p_over = gp.get("over_2_5")
     g_w = cfg.get("goals_2_5") or {}
-    g_score, _, g_drv = _weighted(
-        {
-            "poisson_over_bias": (_num(p_over, 0.5) - 0.5) * 2.0 if p_over is not None else 0.0,
-            "pace_clash": (pace - 100.0) / 100.0,
-            "nec_sum": (nec_sum - 100.0) / 100.0,
-            "xg_total_bias": (sim_xg_t - 2.5) / 2.0 if sim_xg_t else 0.0,
-            "sim_over_bias": (_num(perc.get("over_2_5_pct"), 50.0) - 50.0) / 50.0,
-        },
-        g_w,
-    )
+    g_components = {
+        "poisson_over_bias": (_num(p_over, 0.5) - 0.5) * 2.0 if p_over is not None else 0.0,
+        "pace_clash": (pace - 100.0) / 100.0,
+        "nec_sum": (nec_sum - 100.0) / 100.0,
+        "sim_over_bias": (_num(perc.get("over_2_5_pct"), 50.0) - 50.0) / 50.0,
+    }
+    # Prefer sim over-% bias; drop linear xG-vs-line when sim percent is present.
+    if perc.get("over_2_5_pct") is None:
+        g_components["xg_total_bias"] = (sim_xg_t - 2.5) / 2.0 if sim_xg_t else 0.0
+    g_score, _, g_drv = _weighted(g_components, g_w)
     g_lean = (
         _lean_from_prob(_num(p_over, 0.5), "Over", "Under")
         if p_over is not None
@@ -368,16 +368,15 @@ def predict_markets(
     # --- Goals O/U 3.5 ---
     p_over35 = gp.get("over_3_5")
     g35_w = cfg.get("goals_3_5") or {}
-    g35_score, _, g35_drv = _weighted(
-        {
-            "poisson_over_bias": (_num(p_over35, 0.5) - 0.5) * 2.0 if p_over35 is not None else 0.0,
-            "pace_clash": (pace - 100.0) / 100.0,
-            "nec_sum": (nec_sum - 100.0) / 100.0,
-            "xg_total_bias": (sim_xg_t - 3.5) / 2.0 if sim_xg_t else 0.0,
-            "sim_over_bias": (_num(perc.get("over_3_5_pct"), 50.0) - 50.0) / 50.0,
-        },
-        g35_w,
-    )
+    g35_components = {
+        "poisson_over_bias": (_num(p_over35, 0.5) - 0.5) * 2.0 if p_over35 is not None else 0.0,
+        "pace_clash": (pace - 100.0) / 100.0,
+        "nec_sum": (nec_sum - 100.0) / 100.0,
+        "sim_over_bias": (_num(perc.get("over_3_5_pct"), 50.0) - 50.0) / 50.0,
+    }
+    if perc.get("over_3_5_pct") is None:
+        g35_components["xg_total_bias"] = (sim_xg_t - 3.5) / 2.0 if sim_xg_t else 0.0
+    g35_score, _, g35_drv = _weighted(g35_components, g35_w)
     g35_lean = (
         _lean_from_prob(_num(p_over35, 0.5), "Over", "Under")
         if p_over35 is not None
@@ -441,23 +440,25 @@ def predict_markets(
         th_w,
     )
     th_lean = _lean_from_prob(_num(p_ho, 0.5), "Over", "Under") if p_ho is not None else _binary_lean(th_score, "Over", "Under")
+    th_p_pos = float(p_ho) if p_ho is not None else None
+    th_book = _ou_from_odds(book.get("home_o1_5"), book.get("home_u1_5"))
+    if th_book is None and book.get("home_o1_5") is not None:
+        try:
+            th_book = "Over" if float(book["home_o1_5"]) < 2.0 else "Under"
+        except (TypeError, ValueError):
+            th_book = None
     out["team_goals_home_1_5"] = _pack(
         key="team_goals_home_1_5",
         label="Home O/U 1.5",
         lean=th_lean,
-        confidence=_conf(th_score, matchup, cfg),
+        confidence=_conf(th_score, matchup, cfg, p_pos=th_p_pos),
         score=th_score,
         drivers=th_drv,
         dg_lean=_ou_from_pct(perc.get("home_o1_5_pct")),
-        book_lean=None,
-        prob=_lean_side_prob(float(p_ho) if p_ho is not None else None, th_lean, "Over"),
+        book_lean=th_book,
+        prob=_lean_side_prob(th_p_pos, th_lean, "Over"),
         line=1.5,
     )
-    if book.get("home_o1_5"):
-        try:
-            out["team_goals_home_1_5"]["book_lean"] = "Over" if float(book["home_o1_5"]) < 2.0 else "Under"
-        except (TypeError, ValueError):
-            pass
 
     # --- Team goals away O1.5 ---
     p_ao = gp.get("away_over_1_5")
@@ -474,23 +475,25 @@ def predict_markets(
         ta_w,
     )
     ta_lean = _lean_from_prob(_num(p_ao, 0.5), "Over", "Under") if p_ao is not None else _binary_lean(ta_score, "Over", "Under")
+    ta_p_pos = float(p_ao) if p_ao is not None else None
+    ta_book = _ou_from_odds(book.get("away_o1_5"), book.get("away_u1_5"))
+    if ta_book is None and book.get("away_o1_5") is not None:
+        try:
+            ta_book = "Over" if float(book["away_o1_5"]) < 2.0 else "Under"
+        except (TypeError, ValueError):
+            ta_book = None
     out["team_goals_away_1_5"] = _pack(
         key="team_goals_away_1_5",
         label="Away O/U 1.5",
         lean=ta_lean,
-        confidence=_conf(ta_score, matchup, cfg),
+        confidence=_conf(ta_score, matchup, cfg, p_pos=ta_p_pos),
         score=ta_score,
         drivers=ta_drv,
         dg_lean=_ou_from_pct(perc.get("away_o1_5_pct")),
-        book_lean=None,
-        prob=_lean_side_prob(float(p_ao) if p_ao is not None else None, ta_lean, "Over"),
+        book_lean=ta_book,
+        prob=_lean_side_prob(ta_p_pos, ta_lean, "Over"),
         line=1.5,
     )
-    if book.get("away_o1_5"):
-        try:
-            out["team_goals_away_1_5"]["book_lean"] = "Over" if float(book["away_o1_5"]) < 2.0 else "Under"
-        except (TypeError, ValueError):
-            pass
 
     # --- First half 1X2 ---
     fh_w = cfg.get("fh_1x2") or {}
@@ -545,7 +548,7 @@ def predict_markets(
         key="fh_1x2",
         label="First half 1X2",
         lean=fh_lean,
-        confidence=_conf(fh_score, matchup, cfg),
+        confidence=_conf(fh_score, matchup, cfg, p_pos=fh_prob),
         score=fh_score,
         drivers=fh_drv,
         dg_lean=fh_dg,
@@ -612,7 +615,9 @@ def predict_markets(
         key="corners_9_5",
         label=f"Corners O/U {corners_line}",
         lean=c_lean,
-        confidence=_conf(c_score, matchup, cfg),
+        confidence=_conf(
+            c_score, matchup, cfg, p_pos=c_p_over if corners_pct is not None else None
+        ),
         score=c_score,
         drivers=c_drv,
         dg_lean=_ou_from_pct(corners_pct),
@@ -642,7 +647,9 @@ def predict_markets(
         key="shots_25_5",
         label=f"Shots O/U {shots_line}",
         lean=s_lean,
-        confidence=_conf(s_score, matchup, cfg),
+        confidence=_conf(
+            s_score, matchup, cfg, p_pos=s_p_over if shots_pct is not None else None
+        ),
         score=s_score,
         drivers=s_drv,
         dg_lean=_ou_from_pct(shots_pct),
@@ -673,7 +680,9 @@ def predict_markets(
         key="sot_8_5",
         label=f"SOT O/U {sot_line}",
         lean=so_lean,
-        confidence=_conf(so_score, matchup, cfg),
+        confidence=_conf(
+            so_score, matchup, cfg, p_pos=so_p_over if sot_pct is not None else None
+        ),
         score=so_score,
         drivers=so_drv,
         dg_lean=_ou_from_pct(sot_pct),

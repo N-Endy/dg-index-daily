@@ -1529,7 +1529,11 @@ def test_signal_pack_omits_dashboard_leans():
 
 
 def test_signal_pack_prop_pct_follows_markets_line():
-    from dg.ai.signal_pack import _prop_sim_over_pct, reference_prob_for_lean
+    from dg.ai.signal_pack import (
+        _prop_sim_over_pct,
+        build_fixture_signal_pack,
+        reference_prob_for_lean,
+    )
 
     pred = _vet_prediction(8)
     pred["markets"] = {"corners_9_5": {"line": 10.5, "lean": "Over", "prob": 0.61}}
@@ -1538,3 +1542,6 @@ def test_signal_pack_prop_pct_follows_markets_line():
     assert _prop_sim_over_pct(pred, "corners_9_5") == 61.0
     assert reference_prob_for_lean(pred, "corners_9_5", "Over") == 0.61
     assert reference_prob_for_lean(pred, "corners_9_5", "Under") == 0.39
+    pack = build_fixture_signal_pack(pred)
+    assert pack["sim"]["percents"]["corners_over_10_5_pct"] == 61.0
+    assert pack["sim"]["percents"]["corners_over_9_5_pct"] == 52.0
