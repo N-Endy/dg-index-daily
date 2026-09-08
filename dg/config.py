@@ -162,6 +162,18 @@ FLASHSCORE_COOLDOWN_SEC = float(os.environ.get("FLASHSCORE_COOLDOWN_SEC", "600")
 FLASHSCORE_TIMEOUT_SEC = float(os.environ.get("FLASHSCORE_TIMEOUT_SEC", "45"))
 FLASHSCORE_NAME_MATCH_MIN = int(os.environ.get("FLASHSCORE_NAME_MATCH_MIN", "80"))
 FLASHSCORE_AUTO_MIN_LEAGUE = float(os.environ.get("FLASHSCORE_AUTO_MIN_LEAGUE", "0.55"))
+# Strong name floor for relaxing league gate / missing-league auto-link
+FLASHSCORE_STRONG_NAME_MIN = int(os.environ.get("FLASHSCORE_STRONG_NAME_MIN", "95"))
+# League floor when strong-name bypass applies (youth/country conflicts stay below this)
+FLASHSCORE_STRONG_NAME_MIN_LEAGUE = float(
+    os.environ.get("FLASHSCORE_STRONG_NAME_MIN_LEAGUE", "0.35")
+)
+# Max |fixture_day - scrape_day| allowed for auto-match
+FLASHSCORE_DAY_PENALTY_MAX = int(os.environ.get("FLASHSCORE_DAY_PENALTY_MAX", "2"))
+# Scrape lookback for awaiting fixtures (?d= offsets)
+FLASHSCORE_SCORE_LOOKBACK_DAYS = int(os.environ.get("FLASHSCORE_SCORE_LOOKBACK_DAYS", "14"))
+# Cap distinct day offsets scraped per sync run (newest + oldest)
+FLASHSCORE_SCORE_MAX_OFFSETS = int(os.environ.get("FLASHSCORE_SCORE_MAX_OFFSETS", "8"))
 FLASHSCORE_HINT_MIN_SIDE = int(os.environ.get("FLASHSCORE_HINT_MIN_SIDE", "62"))
 FLASHSCORE_HINT_MIN_AVG = int(os.environ.get("FLASHSCORE_HINT_MIN_AVG", "70"))
 # Soft near-miss: require league label overlap when both sides have a league (0–1)

@@ -270,9 +270,86 @@ def test_day_offsets_for_candidates(monkeypatch):
         {"date_utc": "2026-08-30T15:00:00+00:00"},
         {"date_utc": "2026-08-29T15:00:00+00:00"},
         {"date_utc": "2026-08-28T15:00:00+00:00"},
-        {"date_utc": "2026-08-20T15:00:00+00:00"},  # clamps to -3
+        {"date_utc": "2026-08-20T15:00:00+00:00"},  # -10 within 14-day lookback
     ]
-    assert fs.day_offsets_for_candidates(cands) == [0, -1, -2, -3]
+    assert fs.day_offsets_for_candidates(cands) == [0, -1, -2, -10]
+
+
+def test_day_offsets_lookback_and_max_cap(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(config, "FLASHSCORE_SCORE_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(config, "FLASHSCORE_SCORE_MAX_OFFSETS", 4)
+    cands = [{"date_utc": f"2026-08-{d:02d}T15:00:00+00:00"} for d in range(17, 31)]
+    offsets = fs.day_offsets_for_candidates(cands)
+    assert 0 in offsets
+    assert len(offsets) <= 4
+    # Includes oldest lookback day (Aug 17 → -13) among selected
+    assert min(offsets) <= -10
+
+
+def test_score_pair_strong_name_league_bypass(monkeypatch):
+    from datetime import date, datetime, timezone
+
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(fs, "_utcnow", lambda: datetime(2026, 8, 30, tzinfo=timezone.utc))
+    fx = {
+        "date_utc": "2026-08-30T15:00:00+00:00",
+        "league": "Pro League",
+        "home_name": "Club Brugge",
+        "away_name": "Anderlecht",
+    }
+    # league_match_score ≈ 0.50 (< 0.55 auto floor, ≥ 0.35 strong-name floor)
+    row = {
+        "league": "BELGIUM: Jupiler Pro League",
+        "home": "Club Brugge",
+        "away": "Anderlecht",
+        "day_offset": 0,
+        "fthg": 2,
+        "ftag": 1,
+    }
+    scored = fs._score_fixture_row_pair(fx, row, today=date(2026, 8, 30))
+    assert scored is not None
+
+    # Weak names must still fail at the same league score
+    fx_weak = dict(fx, home_name="Bruges XI", away_name="RSCA Reserves")
+    row_weak = dict(row, home="Some Other", away="Random FC")
+    assert fs._score_fixture_row_pair(fx_weak, row_weak, today=date(2026, 8, 30)) is None
+
+
+def test_score_pair_day_penalty_tolerance(monkeypatch):
+    from datetime import date, datetime, timezone
+
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(fs, "_utcnow", lambda: datetime(2026, 8, 30, tzinfo=timezone.utc))
+    fx = {
+        "date_utc": "2026-08-28T15:00:00+00:00",  # 2 days before scrape day_offset 0
+        "league": "Championship",
+        "home_name": "Derby",
+        "away_name": "Swansea",
+    }
+    row = {
+        "league": "ENGLAND: Championship",
+        "home": "Derby",
+        "away": "Swansea",
+        "day_offset": 0,
+        "fthg": 1,
+        "ftag": 0,
+    }
+    assert fs._score_fixture_row_pair(fx, row, today=date(2026, 8, 30)) is not None
+
+    fx3 = dict(fx, date_utc="2026-08-27T15:00:00+00:00")  # penalty 3 → reject
+    assert fs._score_fixture_row_pair(fx3, row, today=date(2026, 8, 30)) is None
 
 
 def test_scrape_finished_scores_merges_offsets(monkeypatch):
@@ -476,6 +553,65 @@ def test_sync_flashscore_writes_matching_fixture(tmp_path, monkeypatch):
     ).fetchone()
     assert row is not None
     assert int(row["fthg"]) == 2 and int(row["ftag"]) == 1 and row["ftr"] == "H"
+    conn.close()
+
+
+def test_sync_flashscore_rematch_from_stored_rows(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+    from dg.report.score_hints import persist_flashscore_rows
+
+    monkeypatch.setattr(config, "API_FOOTBALL_KEY", "")
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 18, 0, tzinfo=timezone.utc),
+    )
+
+    def boom_scrape(*, day_offsets=None):
+        raise AssertionError(f"live scrape should not run; offsets={day_offsets}")
+
+    monkeypatch.setattr(fs, "scrape_finished_scores", boom_scrape)
+
+    conn = init_db(connect(tmp_path / "fs_rematch.db"))
+    _seed_fixture(
+        conn,
+        fixture_id=2001,
+        date_utc="2026-08-28T14:00:00+00:00",
+        league="Championship",
+        home_name="Derby",
+        away_name="Swansea",
+        home_id=69,
+        away_id=76,
+    )
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "league": "ENGLAND: Championship",
+                "home": "Derby",
+                "away": "Swansea",
+                "fthg": 3,
+                "ftag": 1,
+                "day_offset": -2,
+                "is_live": False,
+                "kickoff_hint": "14:00",
+                "match_id": "rematch1",
+            }
+        ],
+    )
+    conn.commit()
+
+    summary = sync_flashscore_scores(conn)
+    assert summary["rematch_written"] == 1
+    assert summary["written"] == 1
+    row = conn.execute(
+        "SELECT fthg, ftag FROM match_result WHERE source='flashscore'"
+    ).fetchone()
+    assert row is not None
+    assert int(row["fthg"]) == 3 and int(row["ftag"]) == 1
     conn.close()
 
 
@@ -927,10 +1063,17 @@ def _seed_stats_candidate(conn, *, fixture_id: int = 1557377) -> None:
 
 def test_sync_match_stats_bootstraps_match_ids(tmp_path, monkeypatch):
     """When flashscore_row lacks match_id, day-page scrape fills IDs then fetches stats."""
+    from datetime import datetime, timezone
+
     from dg import config
     from dg.ingest import fixture_scores as fs
     from dg.ingest.fixture_scores import sync_match_stats
 
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 18, 0, tzinfo=timezone.utc),
+    )
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "stats_boot.db")
     monkeypatch.setattr(config, "FLASHSCORE_STATS_ENABLED", True)
@@ -951,7 +1094,7 @@ def test_sync_match_stats_bootstraps_match_ids(tmp_path, monkeypatch):
                 "ftag": 1,
                 "league": "ENGLAND: Championship",
                 "match_id": None,
-                "day_offset": -6,
+                "day_offset": -2,
             }
         ],
     )
@@ -969,7 +1112,7 @@ def test_sync_match_stats_bootstraps_match_ids(tmp_path, monkeypatch):
                 "ftag": 1,
                 "league": "ENGLAND: Championship",
                 "match_id": "bootMatch1",
-                "day_offset": -6,
+                "day_offset": -2,
                 "is_live": False,
             }
         ]
@@ -1007,11 +1150,18 @@ def test_sync_match_stats_bootstraps_match_ids(tmp_path, monkeypatch):
 
 def test_sync_match_stats_skips_day_scrape_when_ids_present(tmp_path, monkeypatch):
     """Existing match_ids must not trigger another day-page scrape."""
+    from datetime import datetime, timezone
+
     from dg import config
     from dg.ingest import fixture_scores as fs
     from dg.ingest.fixture_scores import sync_match_stats
     from dg.report.score_hints import persist_flashscore_rows
 
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 18, 0, tzinfo=timezone.utc),
+    )
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "stats_ids.db")
     monkeypatch.setattr(config, "FLASHSCORE_STATS_ENABLED", True)
@@ -1028,7 +1178,7 @@ def test_sync_match_stats_skips_day_scrape_when_ids_present(tmp_path, monkeypatc
                 "ftag": 1,
                 "league": "ENGLAND: Championship",
                 "match_id": "alreadyThere",
-                "day_offset": -6,
+                "day_offset": -2,
             }
         ],
     )

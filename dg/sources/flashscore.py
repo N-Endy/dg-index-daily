@@ -577,7 +577,14 @@ _LEAGUE_STOPWORDS = frozenset(
 _LEAGUE_ALIASES = {
     "laliga": ("la", "liga"),
     "ligue": ("ligue",),
+    "professional": ("pro",),
 }
+
+# Confederation markers stripped from competition identity (UEFA ↔ EUROPE).
+# Do not include "world" — avoids Club Friendly bleed.
+_LEAGUE_CONFEDs = frozenset(
+    {"europe", "uefa", "caf", "afc", "concacaf", "conmebol", "ofc"}
+)
 
 _LEAGUE_COUNTRIES = frozenset(
     {
@@ -694,6 +701,34 @@ _LEAGUE_YOUTH = frozenset(
     {"u16", "u17", "u18", "u19", "u20", "u21", "u22", "u23", "youth", "junior", "juniors"}
 )
 
+# Phrase rewrites applied after lowercasing / punctuation strip (order matters).
+_LEAGUE_PHRASE_CANON: Tuple[Tuple[re.Pattern[str], str], ...] = (
+    # Protect non-EFL "… league cup" before the generic League Cup → eflcup map.
+    (re.compile(r"\bnational\s+league\s+cup\b"), " nationalleaguecup "),
+    (re.compile(r"\bpremier\s+league\s+cup\b"), " premierleaguecup "),
+    (re.compile(r"\bj\s*league\s+cup\b"), " jleaguecup "),
+    # England League Cup / Carabao / EFL
+    (re.compile(r"\befl\s+cup\b"), " eflcup "),
+    (re.compile(r"\bcarabao\s+cup\b"), " eflcup "),
+    (re.compile(r"\bleague\s+cup\b"), " eflcup "),
+    # Protect Youth League before Champions League
+    (re.compile(r"\buefa\s+youth\s+league\b"), " uefayouth "),
+    (re.compile(r"\byouth\s+league\b"), " uefayouth "),
+    # UEFA Champions League
+    (re.compile(r"\buefa\s+champions\s+league\b"), " ucl "),
+    (re.compile(r"\bchampions\s+league\b"), " ucl "),
+    # Saudi Pro / Professional League
+    (re.compile(r"\bsaudi\s+professional\s+league\b"), " saudipro "),
+    (re.compile(r"\bsaudi\s+pro\s+league\b"), " saudipro "),
+)
+
+
+def _apply_league_phrase_canon(text: str) -> str:
+    out = text
+    for pattern, repl in _LEAGUE_PHRASE_CANON:
+        out = pattern.sub(repl, out)
+    return re.sub(r"\s+", " ", out).strip()
+
 
 def _league_tokens(league: str) -> set[str]:
     """Tokenize league labels; keep country tokens for conflict checks."""
@@ -703,6 +738,9 @@ def _league_tokens(league: str) -> set[str]:
     text = re.sub(r"[-.:/,()]+", " ", text)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return set()
+    text = _apply_league_phrase_canon(text)
     if not text:
         return set()
     raw = [p for p in text.split() if p]
@@ -742,6 +780,11 @@ def league_match_score(a: str, b: str) -> float:
 
     youth_a = words_a & _LEAGUE_YOUTH
     youth_b = words_b & _LEAGUE_YOUTH
+    # Canon token uefayouth also counts as youth competition.
+    if "uefayouth" in words_a:
+        youth_a = youth_a | {"youth"}
+    if "uefayouth" in words_b:
+        youth_b = youth_b | {"youth"}
     if youth_a != youth_b:
         return 0.25
 
@@ -750,8 +793,17 @@ def league_match_score(a: str, b: str) -> float:
     if countries_a and countries_b and countries_a.isdisjoint(countries_b):
         return min(0.35, _jaccard(words_a, words_b))
 
-    comp_a = words_a - _LEAGUE_COUNTRIES - _LEAGUE_YOUTH
-    comp_b = words_b - _LEAGUE_COUNTRIES - _LEAGUE_YOUTH
+    strip = _LEAGUE_COUNTRIES | _LEAGUE_YOUTH | _LEAGUE_CONFEDs
+    comp_a = words_a - strip
+    comp_b = words_b - strip
+    # Drop youth-canon token from competition identity after youth gate.
+    comp_a = comp_a - {"uefayouth"}
+    comp_b = comp_b - {"uefayouth"}
+    if not comp_a and not comp_b:
+        # Pure youth / confed-only labels that already passed the youth gate.
+        if youth_a and youth_a == youth_b:
+            return 1.0
+        return _jaccard(words_a - _LEAGUE_CONFEDs, words_b - _LEAGUE_CONFEDs)
     if not comp_a or not comp_b:
         return _jaccard(words_a, words_b)
     if comp_a == comp_b:

@@ -185,8 +185,11 @@ def _fixture_day(fx: Dict[str, Any]) -> Optional[str]:
 def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
     """
     Map candidate fixture UTC days to flashscore.mobi ?d= offsets.
-    Always include today (0); clamp older days to [-3, 0].
+    Always include today (0); clamp older days to [-lookback, 0].
+    When many distinct days exist, keep newest + oldest (max_offsets).
     """
+    lookback = max(0, int(config.FLASHSCORE_SCORE_LOOKBACK_DAYS))
+    max_offsets = max(1, int(config.FLASHSCORE_SCORE_MAX_OFFSETS))
     today = _utcnow().date()
     offsets: Set[int] = {0}
     for fx in candidates:
@@ -198,8 +201,16 @@ def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
         except ValueError:
             continue
         raw = (fday - today).days
-        offsets.add(max(-3, min(0, raw)))
-    return sorted(offsets, reverse=True)  # 0, -1, -2, …
+        if raw > 0:
+            continue
+        offsets.add(max(-lookback, raw))
+    ordered = sorted(offsets, reverse=True)  # 0, -1, -2, …
+    if len(ordered) <= max_offsets:
+        return ordered
+    newest_n = max(1, max_offsets // 2)
+    oldest_n = max_offsets - newest_n
+    selected = set(ordered[:newest_n]) | set(ordered[-oldest_n:])
+    return sorted(selected, reverse=True)
 
 
 def _score_fixture_row_pair(
@@ -216,6 +227,9 @@ def _score_fixture_row_pair(
     sc_league = (row.get("league") or "").strip()
     min_name = int(config.FLASHSCORE_NAME_MATCH_MIN)
     min_league = float(config.FLASHSCORE_AUTO_MIN_LEAGUE)
+    strong_name_min = int(config.FLASHSCORE_STRONG_NAME_MIN)
+    strong_league_floor = float(config.FLASHSCORE_STRONG_NAME_MIN_LEAGUE)
+    day_penalty_max = int(config.FLASHSCORE_DAY_PENALTY_MAX)
     scrape_off = row.get("day_offset")
     try:
         scrape_off_i = int(scrape_off) if scrape_off is not None else None
@@ -230,13 +244,6 @@ def _score_fixture_row_pair(
     except ValueError:
         return None
 
-    fx_league = (fx.get("league") or "").strip()
-    lg_sc = 0.0
-    if fx_league and sc_league:
-        lg_sc = league_match_score(fx_league, sc_league)
-        if lg_sc < min_league:
-            return None
-
     h_direct = team_match_score(home, fx.get("home_name") or "")
     a_direct = team_match_score(away, fx.get("away_name") or "")
     h_flip = team_match_score(home, fx.get("away_name") or "")
@@ -250,15 +257,27 @@ def _score_fixture_row_pair(
     if flip_ok and (not direct_ok or flip_avg >= direct_avg + 5):
         name_avg = flip_avg
         flipped = True
+        side_min = min(h_flip, a_flip)
     else:
         name_avg = direct_avg
         flipped = False
+        side_min = min(h_direct, a_direct)
+    strong_name = side_min >= strong_name_min
+
+    fx_league = (fx.get("league") or "").strip()
+    lg_sc = 0.0
+    if fx_league and sc_league:
+        lg_sc = league_match_score(fx_league, sc_league)
+        if lg_sc < min_league:
+            # Strong names may pass a weaker league floor (still blocks youth/country ~0.25).
+            if not (strong_name and lg_sc >= strong_league_floor):
+                return None
 
     ref_day = today if today is not None else _utcnow().date()
     if scrape_off_i is not None:
         expected = ref_day.toordinal() + scrape_off_i
         day_penalty = abs(fday.toordinal() - expected)
-        if day_penalty > 1:
+        if day_penalty > day_penalty_max:
             return None
     else:
         day_penalty = abs((fday - ref_day).days)
@@ -342,28 +361,123 @@ def _api_football_unavailable(message: str) -> bool:
     return any(m in lower for m in markers)
 
 
+def _write_flashscore_matches(
+    conn,
+    candidates: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+    used_fps: Set[str],
+) -> int:
+    """Fixture-first auto-match; returns number of match_result writes."""
+    from dg.sources.flashscore import row_fingerprint
+
+    written = 0
+    for fx in candidates:
+        matched = find_flashscore_row_for_fixture(fx, rows, used_fps)
+        if matched is None:
+            continue
+        row, flipped = matched
+        score = dict(row)
+        if flipped:
+            score["fthg"], score["ftag"] = score.get("ftag"), score.get("fthg")
+        upsert_score_result(conn, fx, score, source=SOURCE_FLASHSCORE)
+        used_fps.add(row_fingerprint(row))
+        written += 1
+    return written
+
+
+def _near_miss_diagnostics(
+    candidates: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+    *,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """Best soft name/league ranks for still-awaiting fixtures (ops logging)."""
+    out: List[Dict[str, Any]] = []
+    for fx in candidates[: max(limit * 2, limit)]:
+        best: Optional[Dict[str, Any]] = None
+        for row in rows:
+            home, away = row.get("home") or "", row.get("away") or ""
+            h_d = team_match_score(home, fx.get("home_name") or "")
+            a_d = team_match_score(away, fx.get("away_name") or "")
+            h_f = team_match_score(home, fx.get("away_name") or "")
+            a_f = team_match_score(away, fx.get("home_name") or "")
+            direct_avg = (h_d + a_d) / 2.0
+            flip_avg = (h_f + a_f) / 2.0
+            if flip_avg >= direct_avg + 5:
+                name_avg = flip_avg
+                flipped = True
+            else:
+                name_avg = direct_avg
+                flipped = False
+            fx_lg = (fx.get("league") or "").strip()
+            sc_lg = (row.get("league") or "").strip()
+            lg_sc = league_match_score(fx_lg, sc_lg) if fx_lg and sc_lg else 0.0
+            cand = {
+                "fixture": f"{fx.get('home_name')} vs {fx.get('away_name')}",
+                "date": _fixture_day(fx),
+                "name_avg": round(name_avg, 1),
+                "league_score": round(lg_sc, 2),
+                "scraped": f"{home} vs {away}",
+                "scraped_league": sc_lg or None,
+                "flipped": flipped,
+            }
+            if best is None or cand["name_avg"] > best["name_avg"]:
+                best = cand
+        if best:
+            out.append(best)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def sync_flashscore_scores(
     conn,
     *,
     scraped_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Match scraped Flashscore rows onto fixtures needing scores."""
-    candidates = fixtures_needing_scores(conn)
-    offsets = day_offsets_for_candidates(candidates)
+    from dg.report.score_hints import load_recent_flashscore_rows, persist_flashscore_rows
+    from dg.sources.flashscore import row_fingerprint
+
+    initial_candidates = fixtures_needing_scores(conn)
     summary: Dict[str, Any] = {
         "source": SOURCE_FLASHSCORE,
-        "candidates": len(candidates),
-        "day_offsets": offsets,
+        "candidates": len(initial_candidates),
+        "day_offsets": [],
         "scraped": 0,
         "written": 0,
+        "rematch_written": 0,
         "unmatched": 0,
+        "near_misses": [],
         "errors": 0,
         "skipped_cooldown": False,
         "skipped_blocked": False,
         "skipped_unavailable": False,
     }
-    if not candidates:
+    if not initial_candidates:
         return summary
+
+    used_fps: Set[str] = set()
+    candidates = initial_candidates
+
+    # Rematch from persisted scrapes before a live Playwright fetch (skip when
+    # caller injects scraped_rows for tests / offline runs).
+    if scraped_rows is None:
+        stored = load_recent_flashscore_rows(conn, limit=8000)
+        if stored:
+            rematch_n = _write_flashscore_matches(conn, candidates, stored, used_fps)
+            if rematch_n:
+                conn.commit()
+            summary["rematch_written"] = rematch_n
+            summary["written"] += rematch_n
+            candidates = fixtures_needing_scores(conn)
+            if not candidates:
+                summary["unmatched"] = 0
+                logger.info("Flashscore sync: %s", summary)
+                return summary
+
+    offsets = day_offsets_for_candidates(candidates)
+    summary["day_offsets"] = offsets
 
     try:
         rows = (
@@ -375,11 +489,20 @@ def sync_flashscore_scores(
         logger.warning("%s", exc)
         summary["skipped_cooldown"] = True
         summary["errors"] = 1
+        # Still report near-misses vs stored rows when scrape blocked.
+        stored = load_recent_flashscore_rows(conn, limit=4000)
+        if candidates and stored:
+            summary["near_misses"] = _near_miss_diagnostics(candidates, stored)
+            logger.warning("Flashscore near-misses (cooldown): %s", summary["near_misses"])
         return summary
     except FlashscoreBlockedError as exc:
         logger.warning("Flashscore blocked: %s", exc)
         summary["skipped_blocked"] = True
         summary["errors"] = 1
+        stored = load_recent_flashscore_rows(conn, limit=4000)
+        if candidates and stored:
+            summary["near_misses"] = _near_miss_diagnostics(candidates, stored)
+            logger.warning("Flashscore near-misses (blocked): %s", summary["near_misses"])
         return summary
     except FlashscoreUnavailableError as exc:
         logger.warning("Flashscore unavailable: %s", exc)
@@ -388,39 +511,38 @@ def sync_flashscore_scores(
         return summary
 
     summary["scraped"] = len(rows)
-    from dg.report.score_hints import persist_flashscore_rows
-
     persisted = persist_flashscore_rows(conn, rows)
     summary["persisted"] = persisted
     conn.commit()
-    from dg.sources.flashscore import row_fingerprint
 
-    used_fps: Set[str] = set()
-    for fx in candidates:
-        matched = find_flashscore_row_for_fixture(fx, rows, used_fps)
-        if matched is None:
-            continue
-        row, flipped = matched
-        score = dict(row)
-        if flipped:
-            score["fthg"], score["ftag"] = score.get("ftag"), score.get("fthg")
-        upsert_score_result(conn, fx, score, source=SOURCE_FLASHSCORE)
-        used_fps.add(row_fingerprint(row))
-        summary["written"] += 1
-    summary["unmatched"] = max(0, len(rows) - len(used_fps))
+    live_written = _write_flashscore_matches(conn, candidates, rows, used_fps)
+    summary["written"] += live_written
+    summary["unmatched"] = max(0, len(rows) - sum(
+        1 for r in rows if row_fingerprint(r) in used_fps
+    ))
 
     conn.commit()
-    if summary["written"] == 0 and candidates:
+    still_need = fixtures_needing_scores(conn)
+    if still_need and rows:
+        summary["near_misses"] = _near_miss_diagnostics(still_need, rows)
+    if summary["written"] == 0 and initial_candidates:
         sample = [
             f"{c.get('home_name')} vs {c.get('away_name')} ({(c.get('date_utc') or '')[:10]})"
-            for c in candidates[:8]
+            for c in still_need[:8]
         ]
         logger.warning(
-            "Flashscore wrote 0/%d candidates (scraped=%d, offsets=%s); sample: %s",
-            len(candidates),
+            "Flashscore wrote 0/%d candidates (scraped=%d, offsets=%s); sample: %s; near_misses: %s",
+            len(initial_candidates),
             len(rows),
             offsets,
             sample,
+            summary.get("near_misses"),
+        )
+    elif still_need and summary.get("near_misses"):
+        logger.info(
+            "Flashscore still awaiting %d; near_misses: %s",
+            len(still_need),
+            summary["near_misses"],
         )
     logger.info("Flashscore sync: %s", summary)
     return summary

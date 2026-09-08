@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-# Matchday refresh: ingest/predict (Strongest), AI Picks vet, football-data results.
+# Matchday refresh: ingest/predict (Strongest), AI Picks vet, football-data results,
+# then Flashscore scores (timely settle for leagues FD does not cover).
 set -eu
 
 # run_daily.py returns 1 (partial) for fixture ingest warnings; with set -e that
@@ -16,3 +17,5 @@ fi
 
 python -m dg.cli vet-ai-picks || true
 python -m dg.cli backfill-results --season "${FD_SEASON:-2627}" || true
+# Flashscore is the timely path; FD coverage is narrow — also settle scores here.
+python -m dg.cli sync-scores || true
