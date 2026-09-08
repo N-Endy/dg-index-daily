@@ -39,6 +39,29 @@ def test_league_match_score_token_overlap_and_empty():
     assert league_match_score("Championship", "") == 0.0
 
 
+def test_league_match_score_ucl_efl_saudi_flashscore_labels():
+    """API-Football names must match Flashscore.mobi competition headers."""
+    assert (
+        league_match_score("UEFA Champions League", "EUROPE: Champions League") >= 0.55
+    )
+    assert league_match_score("Champions League", "EUROPE: Champions League") >= 0.55
+    assert league_match_score("League Cup", "ENGLAND: EFL Cup") >= 0.55
+    assert league_match_score("Carabao Cup", "ENGLAND: EFL Cup") >= 0.55
+    assert league_match_score("EFL Cup", "ENGLAND: EFL Cup") >= 0.55
+    assert (
+        league_match_score(
+            "Saudi Pro League", "SAUDI ARABIA: Saudi Professional League"
+        )
+        >= 0.55
+    )
+    # Negatives: do not cross-wire similar-sounding cups / youth / foreign PL
+    assert league_match_score("National League Cup", "ENGLAND: EFL Cup") < 0.55
+    assert (
+        league_match_score("UEFA Youth League", "EUROPE: Champions League") < 0.55
+    )
+    assert league_match_score("Premier League", "UGANDA: Premier League") < 0.5
+
+
 def test_find_near_misses_soft_band():
     fx = {
         "home_name": "Man City",
