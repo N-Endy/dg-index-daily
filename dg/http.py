@@ -32,8 +32,17 @@ class HttpResponse:
         return hashlib.sha256(self.content).hexdigest()
 
 
+# Explicitly disable proxies so redirects cannot re-apply HTTP(S)_PROXY.
+_NO_PROXIES = {"http": None, "https": None}
+
+
 def _session() -> requests.Session:
     s = requests.Session()
+    # Ignore HTTP_PROXY / HTTPS_PROXY. Railway (or a local shell) may set a
+    # dead localhost proxy; football-data.co.uk HTTPS→HTTP redirects then fail
+    # with Connection refused to 127.0.0.1:80.
+    s.trust_env = False
+    s.proxies.update(_NO_PROXIES)
     s.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
     retry = Retry(
         total=config.MAX_RETRIES,
@@ -81,7 +90,13 @@ def fetch(
         headers["If-Modified-Since"] = last_modified
 
     logger.debug("GET %s", url)
-    resp = get_session().get(url, headers=headers, timeout=config.REQUEST_TIMEOUT_SEC)
+    # Pass proxies on each GET so redirect hops cannot re-resolve env proxies.
+    resp = get_session().get(
+        url,
+        headers=headers,
+        timeout=config.REQUEST_TIMEOUT_SEC,
+        proxies=_NO_PROXIES,
+    )
     if resp.status_code == 304:
         return HttpResponse(
             url=url,
