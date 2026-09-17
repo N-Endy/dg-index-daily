@@ -47,6 +47,70 @@ def test_board_date_bounds_seven_day_window(monkeypatch):
     assert len(days) == 7
 
 
+def test_dashboard_context_clamps_old_date_filter(tmp_path, monkeypatch):
+    """Date dropdown never lists history outside the WAT window; old ?date= is ignored."""
+    import json
+    from pathlib import Path
+
+    from dg import config
+    from dg.ingest.fixtures import ingest_fixtures
+    from dg.ingest.ratings import ingest_ratings
+    from dg.model.rules import predict_fixture
+    from dg.report.loaders import load_dashboard_context
+    from dg.storage.db import connect, init_db
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(config, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(config, "ALIASES_DIR", tmp_path / "aliases")
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    monkeypatch.setattr(config, "BOARD_DATE_LOOKBACK_DAYS", 3)
+    monkeypatch.setattr(config, "BOARD_DATE_LOOKAHEAD_DAYS", 3)
+    monkeypatch.setattr("dg.report.loaders.today_wat", lambda: "2026-09-17")
+    config.ensure_dirs()
+
+    fixtures_path = Path(__file__).parent / "fixtures"
+    meta = json.loads((fixtures_path / "dg_meta_sample.json").read_text())
+    ratings = json.loads((fixtures_path / "dg_ratings_sample.json").read_text())
+    fixtures = json.loads((fixtures_path / "fixtures_sample.json").read_text())
+
+    conn = connect(config.DB_PATH)
+    init_db(conn)
+    sid, _ = ingest_ratings(
+        conn,
+        ratings,
+        generated_at=meta["generated_at"],
+        payload_sha256="windowtest",
+        meta=meta,
+    )
+    known = {int(t["team_id"]) for t in ratings}
+    ingest_fixtures(conn, fixtures, snapshot_id=sid, known_team_ids=known)
+    rows = conn.execute("SELECT * FROM fixture ORDER BY fixture_id").fetchall()
+    assert len(rows) >= 2
+    # First fixture inside window, rest far in the past.
+    for i, row in enumerate(rows):
+        fx = dict(row)
+        day = "2026-09-16T15:00:00+00:00" if i == 0 else "2026-08-01T15:00:00+00:00"
+        conn.execute(
+            "UPDATE fixture SET date_utc = ? WHERE fixture_id = ?",
+            (day, fx["fixture_id"]),
+        )
+        predict_fixture(conn, {**fx, "date_utc": day}, sid)
+    conn.commit()
+    conn.close()
+
+    ctx = load_dashboard_context(date_filter="2026-08-01")
+    assert ctx["date_filter"] is None  # clamped out of window
+    assert "2026-08-01" not in ctx["dates"]
+    assert ctx["dates"] == ["2026-09-16"]
+    assert all(
+        "2026-09-14" <= kickoff_date_wat(p.get("date_utc")) <= "2026-09-20"
+        for p in ctx["predictions"]
+    )
+    assert all(kickoff_date_wat(p.get("date_utc")) == "2026-09-16" for p in ctx["predictions"])
+
+
 def test_format_generated_at_wat_drops_micros():
     assert (
         format_generated_at("2026-08-30T05:28:10.032815+00:00")

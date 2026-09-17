@@ -62,6 +62,9 @@
           <option value="{{ d }}" {% if date_filter == d %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
         </select>
+        {% if board_window_start and board_window_end %}
+        <span class="filter-hint">{{ board_window_start }} → {{ board_window_end }} (WAT)</span>
+        {% endif %}
       </label>
       <label>
         League

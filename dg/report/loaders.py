@@ -236,6 +236,10 @@ def load_dashboard_context(
         from dg.leagues import attach_league_display
 
         window_start, window_end = board_date_bounds()
+        window_days = set(board_dates_in_window())
+        # Ignore bookmarked / typed dates outside the rolling board window.
+        if date_filter and date_filter not in window_days:
+            date_filter = None
         predictions: List[Dict[str, Any]] = []
         dates: set = set()
         leagues: set = set()
@@ -245,7 +249,7 @@ def load_dashboard_context(
             day = kickoff_date_wat(d.get("date_utc"))
             league_display = d.get("league_display") or ""
             # Keep the interface to a short rolling WAT window (default 7 days).
-            if day < window_start or day > window_end:
+            if day not in window_days:
                 continue
             if day:
                 dates.add(day)
@@ -333,7 +337,8 @@ def load_dashboard_context(
             "snapshot_id": int(snap["id"]),
             "model_version": mv_row["model_version"] if mv_row else None,
             "predictions": predictions,
-            "dates": sorted(dates),
+            # Only days inside the board window that have fixtures (never older history).
+            "dates": sorted(d for d in dates if d in window_days),
             "leagues": sorted(leagues),
             "date_filter": date_filter,
             "board_window_start": window_start,
