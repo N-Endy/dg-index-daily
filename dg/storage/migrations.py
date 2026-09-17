@@ -12,25 +12,6 @@ from dg.storage.db import connect, init_db
 logger = logging.getLogger(__name__)
 
 _STRENGTH_COLS = list(STRENGTH_COLUMNS)
-_PRED_EXTRA = ("markets_json", "probs_json")
-_PROJECTION_EXTRA = (
-    "xgot_home",
-    "xgot_away",
-    "xgot_total",
-    "sot_home",
-    "sot_away",
-    "sot_total",
-    "value_score",
-    "value_over_2_5",
-    "value_btts",
-    "regression_home",
-    "regression_away",
-    "congestion_home",
-    "congestion_away",
-    "over_3_5_pct",
-    "sot_over_8_5_pct",
-    "projected_meta_json",
-)
 
 
 def _table_cols(conn, table: str) -> set:
@@ -38,70 +19,10 @@ def _table_cols(conn, table: str) -> set:
 
 
 def _ensure_columns(conn) -> None:
-    """Add columns introduced after initial schema (SQLite has no IF NOT EXISTS for columns)."""
-    pred_cols = _table_cols(conn, "prediction")
-    for col in _PRED_EXTRA:
-        if col not in pred_cols:
-            conn.execute(f"ALTER TABLE prediction ADD COLUMN {col} TEXT")
+    """Delegate to the single source of truth used by init_db on every boot."""
+    from dg.storage.db import _ensure_additive_columns
 
-    rating_cols = _table_cols(conn, "dg_team_rating")
-    for col in _STRENGTH_COLS:
-        if col not in rating_cols:
-            conn.execute(f"ALTER TABLE dg_team_rating ADD COLUMN {col} REAL")
-
-    fixture_cols = _table_cols(conn, "fixture")
-    for col in ("home_logo", "away_logo"):
-        if col not in fixture_cols:
-            conn.execute(f"ALTER TABLE fixture ADD COLUMN {col} TEXT")
-    if "is_neutral" not in fixture_cols:
-        conn.execute("ALTER TABLE fixture ADD COLUMN is_neutral INTEGER")
-    if "league_country" not in fixture_cols:
-        conn.execute("ALTER TABLE fixture ADD COLUMN league_country TEXT")
-
-    proj_cols = _table_cols(conn, "fixture_projection")
-    for col in _PROJECTION_EXTRA:
-        if col not in proj_cols:
-            if col in ("congestion_home", "congestion_away"):
-                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} INTEGER")
-            elif col == "projected_meta_json":
-                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} TEXT")
-            else:
-                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} REAL")
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS model_calibration (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fitted_at TEXT NOT NULL,
-            model_version TEXT NOT NULL,
-            outcome TEXT NOT NULL,
-            slope REAL NOT NULL,
-            intercept REAL NOT NULL,
-            n_labels INTEGER NOT NULL,
-            UNIQUE (model_version, outcome)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS residual_model (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fitted_at TEXT NOT NULL,
-            model_key TEXT NOT NULL,
-            market_key TEXT NOT NULL,
-            head TEXT NOT NULL,
-            n_train INTEGER NOT NULL,
-            n_holdout INTEGER NOT NULL,
-            holdout_brier REAL,
-            baseline_brier REAL,
-            beat_baseline INTEGER NOT NULL DEFAULT 0,
-            enabled INTEGER NOT NULL DEFAULT 0,
-            weights_json TEXT NOT NULL,
-            feature_names_json TEXT NOT NULL,
-            UNIQUE (model_key, market_key, head)
-        )
-        """
-    )
+    _ensure_additive_columns(conn)
 
 
 def backfill_strength_from_raw(conn) -> int:

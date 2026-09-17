@@ -34,6 +34,25 @@ _STRENGTH_COLS = (
     "def_eff_index",
 )
 
+# Typed sim extras on fixture_projection (ALTER for existing Railway volumes).
+_PROJECTION_EXTRA_REAL = (
+    "xgot_home",
+    "xgot_away",
+    "xgot_total",
+    "sot_home",
+    "sot_away",
+    "sot_total",
+    "value_score",
+    "value_over_2_5",
+    "value_btts",
+    "regression_home",
+    "regression_away",
+    "over_3_5_pct",
+    "sot_over_8_5_pct",
+)
+_PROJECTION_EXTRA_INT = ("congestion_home", "congestion_away")
+_PROJECTION_EXTRA_TEXT = ("projected_meta_json",)
+
 
 def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     config.ensure_dirs()
@@ -69,6 +88,21 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
     if "league_country" not in fixture_cols:
         c.execute("ALTER TABLE fixture ADD COLUMN league_country TEXT")
 
+    # Existing volumes already have fixture_projection; CREATE TABLE IF NOT EXISTS
+    # in schema.sql will not add columns — ALTER here is the deploy-safe path.
+    proj_cols = {
+        row[1] for row in c.execute("PRAGMA table_info(fixture_projection)").fetchall()
+    }
+    for col in _PROJECTION_EXTRA_REAL:
+        if col not in proj_cols:
+            c.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} REAL")
+    for col in _PROJECTION_EXTRA_INT:
+        if col not in proj_cols:
+            c.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} INTEGER")
+    for col in _PROJECTION_EXTRA_TEXT:
+        if col not in proj_cols:
+            c.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} TEXT")
+
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS model_calibration (
@@ -80,6 +114,26 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
             intercept REAL NOT NULL,
             n_labels INTEGER NOT NULL,
             UNIQUE (model_version, outcome)
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS residual_model (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fitted_at TEXT NOT NULL,
+            model_key TEXT NOT NULL,
+            market_key TEXT NOT NULL,
+            head TEXT NOT NULL,
+            n_train INTEGER NOT NULL,
+            n_holdout INTEGER NOT NULL,
+            holdout_brier REAL,
+            baseline_brier REAL,
+            beat_baseline INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            weights_json TEXT NOT NULL,
+            feature_names_json TEXT NOT NULL,
+            UNIQUE (model_key, market_key, head)
         )
         """
     )
@@ -159,12 +213,18 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     sql = SCHEMA_PATH.read_text(encoding="utf-8")
     c.executescript(sql)
     _ensure_additive_columns(c)
-    # Backfill strength from raw_json on existing DBs (lazy import avoids cycles)
+    # Backfill from raw JSON on existing DBs (lazy import avoids cycles).
+    # Column ALTERs above are outside this try so migration failures stay loud.
     try:
-        from dg.storage.migrations import backfill_league_country, backfill_strength_from_raw
+        from dg.storage.migrations import (
+            backfill_league_country,
+            backfill_projection_typed,
+            backfill_strength_from_raw,
+        )
 
         backfill_strength_from_raw(c)
         backfill_league_country(c)
+        backfill_projection_typed(c)
     except Exception:
         pass
     c.commit()
