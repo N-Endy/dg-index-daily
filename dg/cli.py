@@ -69,14 +69,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     fixtures: List[Dict[str, Any]] = []
     for feed in dg_src.fetch_all_fixtures(archive=False):
         fixtures.extend(feed.data)
-    report = run_doctor(meta.raw, ratings.data, fixtures)
+    init_db()
+    with db_session() as conn:
+        report = run_doctor(meta.raw, ratings.data, fixtures, conn=conn)
     for e in report.errors:
         logger.error("DOCTOR: %s", e)
     for w in report.warnings:
         logger.warning("DOCTOR: %s", w)
-    if report.ok:
+    if report.ok and not report.warnings:
         logger.info("Doctor OK — %d teams, %d fixtures", len(ratings.data), len(fixtures))
         return config.EXIT_OK
+    if report.ok and report.warnings:
+        logger.info(
+            "Doctor OK with warnings — %d teams, %d fixtures",
+            len(ratings.data),
+            len(fixtures),
+        )
+        return config.EXIT_PARTIAL
     return config.EXIT_CRITICAL
 
 
@@ -330,6 +339,23 @@ def cmd_sync_scores(args: argparse.Namespace) -> int:
             if flash.get("skipped_blocked") or flash.get("skipped_unavailable"):
                 return config.EXIT_PARTIAL
             if summary.get("written", 0) == 0 and flash.get("skipped_cooldown"):
+                return config.EXIT_PARTIAL
+            from dg.ingest.fixture_scores import awaiting_score_summary
+
+            awaiting = awaiting_score_summary(conn)
+            summary["awaiting_scores"] = {
+                "n_awaiting": awaiting.get("n_awaiting"),
+                "n_stale": awaiting.get("n_stale"),
+                "buckets": awaiting.get("buckets"),
+            }
+            logger.info("Awaiting scores: %s", summary["awaiting_scores"])
+            # Successful scrape path still partial if stale board fixtures remain.
+            if (
+                awaiting.get("n_stale")
+                and not flash.get("skipped_cooldown")
+                and not flash.get("skipped_blocked")
+                and not flash.get("skipped_unavailable")
+            ):
                 return config.EXIT_PARTIAL
             return config.EXIT_OK
         except Exception as exc:  # noqa: BLE001

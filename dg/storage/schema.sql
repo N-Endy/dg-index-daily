@@ -164,11 +164,13 @@ CREATE TABLE IF NOT EXISTS match_result (
     closing_draw REAL,
     closing_away REAL,
     raw_json TEXT,
+    fixture_id INTEGER,
     UNIQUE (source, season, league_code, date, home_name, away_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_match_result_date ON match_result(date);
 CREATE INDEX IF NOT EXISTS idx_match_result_teams ON match_result(home_team_id, away_team_id);
+CREATE INDEX IF NOT EXISTS idx_match_result_fixture ON match_result(fixture_id);
 
 CREATE TABLE IF NOT EXISTS team_alias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

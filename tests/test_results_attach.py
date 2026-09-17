@@ -211,3 +211,59 @@ def test_build_result_index_stable_when_both_have_stats():
     second = _base_result(hc=9, ac=1, fthg=2, ftag=2, source="b")
     assert build_result_index([first, second])[(10, 20, "2026-08-29")]["hc"] == 4
     assert build_result_index([second, first])[(10, 20, "2026-08-29")]["hc"] == 9
+
+
+def test_attach_prefers_fixture_id_over_team_day():
+    from dg.report.results_attach import lookup_result
+
+    by_fixture = {
+        "home_team_id": 99,
+        "away_team_id": 98,
+        "date": "2026-01-01",
+        "fthg": 4,
+        "ftag": 0,
+        "ftr": "H",
+        "fixture_id": 555,
+        "hc": None,
+        "ac": None,
+        "hs": None,
+        "as_shots": None,
+        "hst": None,
+        "ast": None,
+        "hy": None,
+        "ay": None,
+        "hr": None,
+        "ar": None,
+    }
+    by_teams = {
+        "home_team_id": 10,
+        "away_team_id": 20,
+        "date": "2026-08-29",
+        "fthg": 1,
+        "ftag": 1,
+        "ftr": "D",
+        "fixture_id": None,
+        "hc": None,
+        "ac": None,
+        "hs": None,
+        "as_shots": None,
+        "hst": None,
+        "ast": None,
+        "hy": None,
+        "ay": None,
+        "hr": None,
+        "ar": None,
+    }
+    index = build_result_index([by_fixture, by_teams])
+    pred = {
+        "fixture_id": 555,
+        "home_id": 10,
+        "away_id": 20,
+        "date_utc": "2026-08-29T11:00:00+00:00",
+    }
+    attach_result_to_prediction(pred, index)
+    assert pred["ft_score"] == "4–0"
+    # Team-day still works when fixture_id missing on the prediction.
+    mr = lookup_result(index, home_id=10, away_id=20, date_utc="2026-08-29T11:00:00+00:00")
+    assert mr is not None
+    assert int(mr["fthg"]) == 1

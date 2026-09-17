@@ -292,8 +292,27 @@ def test_day_offsets_lookback_and_max_cap(monkeypatch):
     offsets = fs.day_offsets_for_candidates(cands)
     assert 0 in offsets
     assert len(offsets) <= 4
-    # Includes oldest lookback day (Aug 17 → -13) among selected
-    assert min(offsets) <= -10
+    # Newest contiguous window — no middle-day drop for older extremes.
+    assert offsets == [0, -1, -2, -3]
+
+
+def test_day_offsets_covers_full_lookback_by_default(monkeypatch):
+    from datetime import datetime, timezone
+
+    from dg import config
+    from dg.ingest import fixture_scores as fs
+
+    monkeypatch.setattr(
+        fs,
+        "_utcnow",
+        lambda: datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(config, "FLASHSCORE_SCORE_LOOKBACK_DAYS", 14)
+    monkeypatch.setattr(config, "FLASHSCORE_SCORE_MAX_OFFSETS", 15)
+    cands = [{"date_utc": f"2026-08-{d:02d}T15:00:00+00:00"} for d in range(17, 31)]
+    offsets = fs.day_offsets_for_candidates(cands)
+    # Aug 17 → -13 … Aug 30 → 0
+    assert offsets == list(range(0, -14, -1))
 
 
 def test_score_pair_strong_name_league_bypass(monkeypatch):

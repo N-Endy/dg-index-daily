@@ -56,14 +56,29 @@ def load_status_context() -> Dict[str, Any]:
             "SELECT COUNT(*) AS n FROM ai_pick WHERE day = ?", (day,)
         ).fetchone()
 
-        from dg.report.selection_audit import selection_regret_audit
+        from dg.ingest.fixture_scores import (
+            _near_miss_diagnostics,
+            awaiting_score_summary,
+            fixtures_needing_scores,
+        )
+        from dg.report.score_hints import load_recent_flashscore_rows
         from dg.report.scoreboard import recent_ai_performance, recent_strongest_performance
         from dg.report.scoring_env import load_scoring_environment
+        from dg.report.selection_audit import selection_regret_audit
 
         selection_audit = selection_regret_audit(conn)
         strongest_scoreboard = recent_strongest_performance(conn)
         ai_scoreboard = recent_ai_performance(conn)
         scoring_env = load_scoring_environment(conn)
+        awaiting = awaiting_score_summary(conn)
+        near_misses: list = []
+        if awaiting.get("n_awaiting"):
+            stored = load_recent_flashscore_rows(conn, limit=2000)
+            if stored:
+                near_misses = _near_miss_diagnostics(
+                    fixtures_needing_scores(conn), stored, limit=8
+                )
+        awaiting["near_misses"] = near_misses
 
         n_fixtures = conn.execute("SELECT COUNT(*) AS n FROM fixture").fetchone()
         n_predictions = conn.execute("SELECT COUNT(*) AS n FROM prediction").fetchone()
@@ -84,6 +99,7 @@ def load_status_context() -> Dict[str, Any]:
             "strongest_scoreboard": strongest_scoreboard,
             "ai_scoreboard": ai_scoreboard,
             "scoring_env": scoring_env,
+            "awaiting_scores": awaiting,
             "n_fixtures": int(n_fixtures["n"]) if n_fixtures else 0,
             "n_predictions": int(n_predictions["n"]) if n_predictions else 0,
             "today_wat": day,

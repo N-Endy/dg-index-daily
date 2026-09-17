@@ -57,7 +57,7 @@
       <label>
         Date
         <select name="date">
-          <option value="all" {% if not date_filter %}selected{% endif %}>All dates</option>
+          <option value="all" {% if not date_filter %}selected{% endif %}>All in window</option>
           {% for d in dates %}
           <option value="{{ d }}" {% if date_filter == d %}selected{% endif %}>{{ d }}</option>
           {% endfor %}

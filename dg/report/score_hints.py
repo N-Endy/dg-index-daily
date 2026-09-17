@@ -12,8 +12,146 @@ from dg.sources.flashscore import league_match_score, row_fingerprint, team_matc
 logger = logging.getLogger(__name__)
 
 SOURCE_MANUAL = "flashscore-manual"
+SOURCE_OPERATOR_MANUAL = "manual"
 ORIENTATION_EPS = 5  # prefer flipped only if clearly better
 LEAGUE_RANK_BOOST = 5.0  # small boost so same-league ties win
+
+
+def auto_promote_soft_near_misses(
+    conn,
+    candidates: List[Dict[str, Any]],
+    scraped_rows: List[Dict[str, Any]],
+) -> int:
+    """
+    Upsert unique high-confidence soft near-misses as flashscore.
+    Requires side/avg/league floors and a clear gap over the runner-up.
+    """
+    from dg.ingest.fixture_scores import SOURCE_FLASHSCORE
+    from dg.sources.flashscore import row_fingerprint
+
+    if not candidates or not scraped_rows:
+        return 0
+    side_floor = int(config.FLASHSCORE_AUTO_SOFT_MIN_SIDE)
+    avg_floor = int(config.FLASHSCORE_AUTO_SOFT_MIN_AVG)
+    league_floor = float(config.FLASHSCORE_AUTO_SOFT_MIN_LEAGUE)
+    gap_min = float(config.FLASHSCORE_AUTO_SOFT_UNIQUE_GAP)
+    used_fps: set = set()
+    written = 0
+    for fx in candidates:
+        hits = find_score_near_misses(
+            fx,
+            scraped_rows,
+            min_side=side_floor,
+            min_avg=avg_floor,
+            min_league=league_floor,
+            limit=2,
+        )
+        if not hits:
+            continue
+        best = hits[0]
+        if (
+            int(best.get("home_score") or 0) < side_floor
+            or int(best.get("away_score") or 0) < side_floor
+        ):
+            continue
+        avg = (float(best["home_score"]) + float(best["away_score"])) / 2.0
+        if avg < avg_floor:
+            continue
+        if float(best.get("league_score") or 0.0) < league_floor:
+            continue
+        if len(hits) >= 2:
+            second = hits[1]
+            second_avg = (
+                float(second["home_score"]) + float(second["away_score"])
+            ) / 2.0
+            if avg - second_avg < gap_min:
+                continue
+        # Prefer DB row id when present; otherwise match by scraped names/score.
+        row = None
+        rid = best.get("id")
+        if rid is not None:
+            row = next((r for r in scraped_rows if r.get("id") == rid), None)
+        if row is None:
+            for r in scraped_rows:
+                if (
+                    r.get("home") == best.get("scraped_home")
+                    and r.get("away") == best.get("scraped_away")
+                    and int(r.get("fthg", -1)) == int(best.get("fthg", -2))
+                    and int(r.get("ftag", -1)) == int(best.get("ftag", -2))
+                ):
+                    row = r
+                    break
+        if row is None:
+            continue
+        fp = row_fingerprint(row)
+        if fp in used_fps:
+            continue
+        score = {
+            "home": best.get("scraped_home") or best.get("home"),
+            "away": best.get("scraped_away") or best.get("away"),
+            "league": best.get("league"),
+            "fthg": best["fthg"],
+            "ftag": best["ftag"],
+            "match_id": row.get("match_id"),
+        }
+        upsert_score_result(conn, fx, score, source=SOURCE_FLASHSCORE)
+        used_fps.add(fp)
+        written += 1
+    return written
+
+
+def submit_manual_score(
+    conn,
+    fixture_id: int,
+    fthg: int,
+    ftag: int,
+) -> Dict[str, Any]:
+    """
+    Operator FT escape hatch for past predicted fixtures without a joinable result.
+    """
+    from datetime import datetime, timezone
+
+    from dg.report.results_attach import load_result_index, lookup_result
+
+    if int(fthg) < 0 or int(ftag) < 0:
+        raise ValueError("scores must be non-negative integers")
+    fx = load_fixture_for_confirm(conn, fixture_id)
+    if not fx:
+        raise ValueError("fixture not found")
+    # Must have a prediction (board fixture).
+    has_pred = conn.execute(
+        "SELECT 1 FROM prediction WHERE fixture_id = ? LIMIT 1",
+        (int(fixture_id),),
+    ).fetchone()
+    if not has_pred:
+        raise ValueError("fixture has no prediction — not a board fixture")
+    date_utc = fx.get("date_utc") or ""
+    try:
+        kickoff = datetime.fromisoformat(date_utc.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("fixture has invalid kickoff") from exc
+    if kickoff > datetime.now(timezone.utc):
+        raise ValueError("fixture kickoff is still in the future")
+    index = load_result_index(conn)
+    if lookup_result(
+        index,
+        home_id=fx.get("home_id"),
+        away_id=fx.get("away_id"),
+        date_utc=date_utc,
+        fixture_id=fx.get("fixture_id"),
+    ):
+        raise ValueError("fixture already has a final score")
+    score = {"fthg": int(fthg), "ftag": int(ftag)}
+    upsert_score_result(conn, fx, score, source=SOURCE_OPERATOR_MANUAL)
+    conn.commit()
+    return {
+        "fixture_id": int(fixture_id),
+        "ft_score": f"{int(fthg)}–{int(ftag)}",
+        "fthg": int(fthg),
+        "ftag": int(ftag),
+        "home_name": fx.get("home_name"),
+        "away_name": fx.get("away_name"),
+    }
 
 
 def _utcnow_iso() -> str:

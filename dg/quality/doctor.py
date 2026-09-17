@@ -105,10 +105,36 @@ def check_fixtures_resolve(
     return report
 
 
+def check_awaiting_scores(
+    conn,
+    report: Optional[DoctorReport] = None,
+) -> DoctorReport:
+    """Warn/fail when predicted fixtures remain unscored well after kickoff."""
+    report = report or DoctorReport()
+    from dg.ingest.fixture_scores import awaiting_score_summary
+
+    summary = awaiting_score_summary(conn)
+    n_stale = int(summary.get("n_stale") or 0)
+    n_awaiting = int(summary.get("n_awaiting") or 0)
+    if n_stale:
+        sample = summary.get("stale_samples") or []
+        names = [
+            f"{s.get('home_name')} vs {s.get('away_name')}"
+            for s in sample[:5]
+        ]
+        report.warn(
+            f"{n_stale} stale awaiting scores (≥{summary.get('stale_hours')}h past KO; "
+            f"{n_awaiting} total awaiting)"
+            + (f" — sample: {'; '.join(names)}" if names else "")
+        )
+    return report
+
+
 def run_doctor(
     meta: Dict[str, Any],
     teams: List[Dict[str, Any]],
     fixtures: Optional[List[Dict[str, Any]]] = None,
+    conn: Any = None,
 ) -> DoctorReport:
     report = DoctorReport()
     check_meta(meta, report)
@@ -116,4 +142,6 @@ def run_doctor(
     if fixtures is not None:
         team_ids = {int(t["team_id"]) for t in teams if "team_id" in t}
         check_fixtures_resolve(fixtures, team_ids, report)
+    if conn is not None:
+        check_awaiting_scores(conn, report)
     return report

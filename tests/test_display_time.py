@@ -7,6 +7,8 @@ from unittest.mock import patch
 from dg.report.loaders import (
     DISPLAY_TZ,
     _format_kickoff,
+    board_date_bounds,
+    board_dates_in_window,
     format_generated_at,
     group_predictions_by_date,
     kickoff_date_wat,
@@ -29,6 +31,20 @@ def test_today_wat_at_midnight_wat():
     with patch("dg.report.loaders.datetime") as mock_dt:
         mock_dt.now.return_value = wat_now
         assert today_wat() == "2026-09-01"
+
+
+def test_board_date_bounds_seven_day_window(monkeypatch):
+    from dg import config
+
+    monkeypatch.setattr(config, "BOARD_DATE_LOOKBACK_DAYS", 3)
+    monkeypatch.setattr(config, "BOARD_DATE_LOOKAHEAD_DAYS", 3)
+    start, end = board_date_bounds(today="2026-09-17")
+    assert start == "2026-09-14"
+    assert end == "2026-09-20"
+    days = board_dates_in_window(today="2026-09-17")
+    assert days[0] == "2026-09-14"
+    assert days[-1] == "2026-09-20"
+    assert len(days) == 7
 
 
 def test_format_generated_at_wat_drops_micros():

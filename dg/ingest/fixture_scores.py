@@ -21,6 +21,59 @@ logger = logging.getLogger(__name__)
 
 SOURCE_FLASHSCORE = "flashscore"
 SOURCE_API = "api-football"
+SOURCE_MANUAL = "manual"
+
+
+def awaiting_score_summary(conn) -> Dict[str, Any]:
+    """
+    Ops SLA: count predicted past-kickoff fixtures still missing a joinable FT.
+    Age buckets relative to now vs kickoff.
+    """
+    candidates = fixtures_needing_scores(conn)
+    now = _utcnow()
+    lookback_h = float(config.FLASHSCORE_SCORE_LOOKBACK_DAYS) * 24.0
+    buckets = {
+        "last_24h": 0,
+        "d1_to_d3": 0,
+        "d3_to_lookback": 0,
+        "older_than_lookback": 0,
+    }
+    stale_hours = float(config.SCORE_AWAITING_STALE_HOURS)
+    stale: List[Dict[str, Any]] = []
+    samples: List[Dict[str, Any]] = []
+    for fx in candidates:
+        kickoff = _parse_kickoff(fx.get("date_utc"))
+        if kickoff is None:
+            continue
+        age_h = (now - kickoff).total_seconds() / 3600.0
+        if age_h < 24:
+            buckets["last_24h"] += 1
+        elif age_h < 72:
+            buckets["d1_to_d3"] += 1
+        elif age_h < lookback_h:
+            buckets["d3_to_lookback"] += 1
+        else:
+            buckets["older_than_lookback"] += 1
+        item = {
+            "fixture_id": fx.get("fixture_id"),
+            "home_name": fx.get("home_name"),
+            "away_name": fx.get("away_name"),
+            "date_utc": fx.get("date_utc"),
+            "league": fx.get("league"),
+            "age_hours": round(age_h, 1),
+        }
+        if len(samples) < 12:
+            samples.append(item)
+        if age_h >= stale_hours:
+            stale.append(item)
+    return {
+        "n_awaiting": len(candidates),
+        "n_stale": len(stale),
+        "stale_hours": stale_hours,
+        "buckets": buckets,
+        "samples": samples,
+        "stale_samples": stale[:12],
+    }
 
 
 def _utcnow() -> datetime:
@@ -60,6 +113,7 @@ def fixtures_needing_scores(conn) -> List[Dict[str, Any]]:
             home_id=d.get("home_id"),
             away_id=d.get("away_id"),
             date_utc=d.get("date_utc"),
+            fixture_id=d.get("fixture_id"),
         ):
             continue
         out.append(d)
@@ -127,14 +181,15 @@ def upsert_score_result(
         """
         INSERT INTO match_result (
             source, season, league_code, date, home_name, away_name,
-            home_team_id, away_team_id, fthg, ftag, ftr, hthg, htag,
+            home_team_id, away_team_id, fixture_id, fthg, ftag, ftr, hthg, htag,
             hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
             raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source, season, league_code, date, home_name, away_name)
         DO UPDATE SET
             home_team_id=excluded.home_team_id,
             away_team_id=excluded.away_team_id,
+            fixture_id=COALESCE(excluded.fixture_id, match_result.fixture_id),
             fthg=excluded.fthg, ftag=excluded.ftag, ftr=excluded.ftr,
             hthg=excluded.hthg, htag=excluded.htag,
             hs=COALESCE(excluded.hs, match_result.hs),
@@ -158,6 +213,7 @@ def upsert_score_result(
             away,
             fixture.get("home_id"),
             fixture.get("away_id"),
+            fixture.get("fixture_id"),
             fthg,
             ftag,
             ftr,
@@ -186,7 +242,8 @@ def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
     """
     Map candidate fixture UTC days to flashscore.mobi ?d= offsets.
     Always include today (0); clamp older days to [-lookback, 0].
-    When many distinct days exist, keep newest + oldest (max_offsets).
+    Returns every distinct day in range (no middle-day drop). If the set
+    exceeds max_offsets, keep the newest offsets only (contiguous from 0).
     """
     lookback = max(0, int(config.FLASHSCORE_SCORE_LOOKBACK_DAYS))
     max_offsets = max(1, int(config.FLASHSCORE_SCORE_MAX_OFFSETS))
@@ -207,10 +264,8 @@ def day_offsets_for_candidates(candidates: List[Dict[str, Any]]) -> List[int]:
     ordered = sorted(offsets, reverse=True)  # 0, -1, -2, …
     if len(ordered) <= max_offsets:
         return ordered
-    newest_n = max(1, max_offsets // 2)
-    oldest_n = max_offsets - newest_n
-    selected = set(ordered[:newest_n]) | set(ordered[-oldest_n:])
-    return sorted(selected, reverse=True)
+    # Prefer newest contiguous window so middle days are not skipped for old ones.
+    return ordered[:max_offsets]
 
 
 def _score_fixture_row_pair(
@@ -471,6 +526,15 @@ def sync_flashscore_scores(
             summary["rematch_written"] = rematch_n
             summary["written"] += rematch_n
             candidates = fixtures_needing_scores(conn)
+            if candidates:
+                from dg.report.score_hints import auto_promote_soft_near_misses
+
+                soft_n = auto_promote_soft_near_misses(conn, candidates, stored)
+                if soft_n:
+                    conn.commit()
+                    summary["written"] += soft_n
+                    summary["soft_promoted"] = int(summary.get("soft_promoted") or 0) + soft_n
+                    candidates = fixtures_needing_scores(conn)
             if not candidates:
                 summary["unmatched"] = 0
                 logger.info("Flashscore sync: %s", summary)
@@ -523,8 +587,29 @@ def sync_flashscore_scores(
 
     conn.commit()
     still_need = fixtures_needing_scores(conn)
-    if still_need and rows:
-        summary["near_misses"] = _near_miss_diagnostics(still_need, rows)
+    # High-confidence soft near-misses that auto thresholds refused.
+    soft_written = 0
+    if still_need:
+        from dg.report.score_hints import (
+            auto_promote_soft_near_misses,
+            load_recent_flashscore_rows,
+        )
+
+        # Prefer persisted rows (have DB ids) for soft matching / promote.
+        soft_pool = load_recent_flashscore_rows(conn, limit=4000) or rows
+        soft_written = auto_promote_soft_near_misses(conn, still_need, soft_pool)
+        if soft_written:
+            conn.commit()
+            summary["written"] += soft_written
+            summary["soft_promoted"] = soft_written
+            still_need = fixtures_needing_scores(conn)
+
+    if still_need:
+        from dg.report.score_hints import load_recent_flashscore_rows as _load_fs
+
+        diag_rows = rows if rows else _load_fs(conn, limit=4000)
+        if diag_rows:
+            summary["near_misses"] = _near_miss_diagnostics(still_need, diag_rows)
     if summary["written"] == 0 and initial_candidates:
         sample = [
             f"{c.get('home_name')} vs {c.get('away_name')} ({(c.get('date_utc') or '')[:10]})"
@@ -692,6 +777,7 @@ def _fixtures_missing_stats(conn) -> List[Dict[str, Any]]:
             home_id=d.get("home_id"),
             away_id=d.get("away_id"),
             date_utc=d.get("date_utc"),
+            fixture_id=d.get("fixture_id"),
         )
         if mr is None:
             continue

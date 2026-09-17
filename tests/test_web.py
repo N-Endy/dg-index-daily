@@ -257,6 +257,58 @@ def test_score_link_confirm_with_header(web_client, monkeypatch):
     assert r.json().get("ft_score") == "1–0"
 
 
+def test_manual_score_api(web_client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from dg import config
+    from dg.storage.db import connect, init_db
+
+    monkeypatch.setattr(config, "SCORE_LINK_SECRET", "test-secret")
+    conn = init_db(connect(config.DB_PATH))
+    past = (datetime.now(timezone.utc) - timedelta(hours=10)).isoformat()
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            901,
+            past,
+            "Test",
+            1,
+            101,
+            102,
+            "Manual Home",
+            "Manual Away",
+            past,
+            past,
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, predicted_at, model_version, lean, confidence, scores_json, drivers_json
+        ) VALUES (901, ?, 'test', 'Home', 'low', '{}', '[]')
+        """,
+        (past,),
+    )
+    conn.commit()
+    conn.close()
+
+    r = web_client.post(
+        "/api/score/manual",
+        json={"fixture_id": 901, "fthg": 2, "ftag": 2},
+        headers={"X-Score-Link-Secret": "test-secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("ft_score") == "2–2"
+
+
 def test_dashboard_empty_db(tmp_path, monkeypatch):
     from dg import config
 
@@ -363,7 +415,7 @@ def test_dashboard_market_filter_contradiction(web_client):
     # Impossible under Match all: same market can't be both sides via two params —
     # last wins, so use two markets that sample fixture may not both satisfy.
     # Safer: require Over AND Under on goals via mode=all with two different markets
-    # that we force by using a side that conflicts with stored lean... 
+    # that we force by using a side that conflicts with stored lean...
     # Use mode=all with goals Over and goals Under — last wins so only Under remains.
     # Instead pick absurd combo that empties: min_prob=0.99 with a market
     r = web_client.get("/?m=goals_2_5:Over&m=goals_2_5:Under&mode=all&min_prob=0.99")

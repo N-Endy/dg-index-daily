@@ -6,7 +6,7 @@ Data refreshes automatically each day on Railway. You do not need to run scripts
 ## Use the site (what you care about)
 
 1. Open your Railway URL (or `http://127.0.0.1:8787` locally).
-2. Skim the dashboard (defaults to **today in WAT**; use **All dates** in the filter for the full archive); filter by league if you want.
+2. Skim the dashboard (defaults to **today in WAT**; use **All in window** for today −3 … +3 days); filter by league if you want.
 3. Read **How to read this** (`/guide`) for what lean, confidence, and match style mean.
 4. Check **Status** (`/status`) if the stale banner appears or you need last-run diagnostics.
 

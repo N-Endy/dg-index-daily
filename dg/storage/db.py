@@ -206,6 +206,13 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
             """
         )
 
+    mr_cols = {row[1] for row in c.execute("PRAGMA table_info(match_result)").fetchall()}
+    if mr_cols and "fixture_id" not in mr_cols:
+        c.execute("ALTER TABLE match_result ADD COLUMN fixture_id INTEGER")
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_match_result_fixture ON match_result(fixture_id)"
+    )
+
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     own = conn is None

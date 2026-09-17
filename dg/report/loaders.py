@@ -194,6 +194,8 @@ def load_dashboard_context(
         "dates": [],
         "leagues": [],
         "date_filter": date_filter,
+        "board_window_start": None,
+        "board_window_end": None,
         "league_filter": league_filter,
         "market_filters": market_filters,
         "match_mode": match_mode,
@@ -233,6 +235,7 @@ def load_dashboard_context(
 
         from dg.leagues import attach_league_display
 
+        window_start, window_end = board_date_bounds()
         predictions: List[Dict[str, Any]] = []
         dates: set = set()
         leagues: set = set()
@@ -241,6 +244,9 @@ def load_dashboard_context(
             attach_league_display(d)
             day = kickoff_date_wat(d.get("date_utc"))
             league_display = d.get("league_display") or ""
+            # Keep the interface to a short rolling WAT window (default 7 days).
+            if day < window_start or day > window_end:
+                continue
             if day:
                 dates.add(day)
             if league_display:
@@ -330,6 +336,8 @@ def load_dashboard_context(
             "dates": sorted(dates),
             "leagues": sorted(leagues),
             "date_filter": date_filter,
+            "board_window_start": window_start,
+            "board_window_end": window_end,
             "league_filter": league_filter,
             "market_filters": market_filters,
             "match_mode": match_mode,
@@ -485,6 +493,39 @@ def _to_wat(dt: datetime) -> datetime:
 def today_wat() -> str:
     """Operational calendar day in Nigerian time (matches cron schedule)."""
     return datetime.now(DISPLAY_TZ).date().isoformat()
+
+
+def board_date_bounds(
+    *,
+    today: Optional[str] = None,
+) -> Tuple[str, str]:
+    """Inclusive WAT YYYY-MM-DD bounds for the board date window."""
+    from datetime import date, timedelta
+
+    anchor = date.fromisoformat(today or today_wat())
+    lookback = max(0, int(config.BOARD_DATE_LOOKBACK_DAYS))
+    lookahead = max(0, int(config.BOARD_DATE_LOOKAHEAD_DAYS))
+    start = anchor - timedelta(days=lookback)
+    end = anchor + timedelta(days=lookahead)
+    return start.isoformat(), end.isoformat()
+
+
+def board_dates_in_window(
+    *,
+    today: Optional[str] = None,
+) -> List[str]:
+    """All WAT calendar days in the board window (lookback … lookahead)."""
+    from datetime import date, timedelta
+
+    start_s, end_s = board_date_bounds(today=today)
+    start = date.fromisoformat(start_s)
+    end = date.fromisoformat(end_s)
+    out: List[str] = []
+    cur = start
+    while cur <= end:
+        out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
 
 
 def kickoff_date_wat(date_utc: Optional[str]) -> str:

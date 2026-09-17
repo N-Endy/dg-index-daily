@@ -135,7 +135,7 @@ This still **does not eliminate risk** and is **not betting advice** — it is a
 
 ## How to use this properly
 
-1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the full board (defaults to **today in WAT**; choose **All dates** for the full archive).
+1. Open **Strongest leans** for today’s high-bar shortlist, **AI Picks** for the LLM-vetted subset, or the **dashboard** for the board (defaults to **today in WAT**; **All in window** shows today −3 … +3 days).
 2. Optionally open **Market leans** in the sidebar to combine directions — for example BTTS Yes **and** SOT Over **and** Goals 2.5 Over. Use **Match all** (default) so every pick must hold, or **Match any** if one is enough.
 3. Raise **Min probability** / **Min confidence** to keep only stronger market leans. With no market picks selected, those floors apply to the main match-winner lean instead.
 4. Skim **high-confidence** leans first; treat low-confidence as noise.

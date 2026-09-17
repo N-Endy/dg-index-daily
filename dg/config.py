@@ -31,6 +31,9 @@ ALIASES_JSON = ALIASES_DIR / "football_data_couk.json"
 # Web
 PORT = int(os.environ.get("PORT", "8787"))
 STALE_HOURS_THRESHOLD = float(os.environ.get("STALE_HOURS_THRESHOLD", "36"))
+# Rolling board calendar window in WAT (today − lookback … today + lookahead).
+BOARD_DATE_LOOKBACK_DAYS = int(os.environ.get("BOARD_DATE_LOOKBACK_DAYS", "3"))
+BOARD_DATE_LOOKAHEAD_DAYS = int(os.environ.get("BOARD_DATE_LOOKAHEAD_DAYS", "3"))
 
 # HTTP
 USER_AGENT = "DataGafferDailyPipeline/0.1 (+local research; polite once-daily)"
@@ -181,12 +184,23 @@ FLASHSCORE_STRONG_NAME_MIN_LEAGUE = float(
 FLASHSCORE_DAY_PENALTY_MAX = int(os.environ.get("FLASHSCORE_DAY_PENALTY_MAX", "2"))
 # Scrape lookback for awaiting fixtures (?d= offsets)
 FLASHSCORE_SCORE_LOOKBACK_DAYS = int(os.environ.get("FLASHSCORE_SCORE_LOOKBACK_DAYS", "14"))
-# Cap distinct day offsets scraped per sync run (newest + oldest)
-FLASHSCORE_SCORE_MAX_OFFSETS = int(os.environ.get("FLASHSCORE_SCORE_MAX_OFFSETS", "8"))
+# Cap distinct ?d= offsets per sync (always includes today=0). Default covers full lookback.
+FLASHSCORE_SCORE_MAX_OFFSETS = int(os.environ.get("FLASHSCORE_SCORE_MAX_OFFSETS", "15"))
 FLASHSCORE_HINT_MIN_SIDE = int(os.environ.get("FLASHSCORE_HINT_MIN_SIDE", "62"))
 FLASHSCORE_HINT_MIN_AVG = int(os.environ.get("FLASHSCORE_HINT_MIN_AVG", "70"))
 # Soft near-miss: require league label overlap when both sides have a league (0–1)
 FLASHSCORE_HINT_MIN_LEAGUE = float(os.environ.get("FLASHSCORE_HINT_MIN_LEAGUE", "0.50"))
+# High-confidence soft near-miss auto-promote (after scrape, unique best).
+FLASHSCORE_AUTO_SOFT_MIN_SIDE = int(os.environ.get("FLASHSCORE_AUTO_SOFT_MIN_SIDE", "90"))
+FLASHSCORE_AUTO_SOFT_MIN_AVG = int(os.environ.get("FLASHSCORE_AUTO_SOFT_MIN_AVG", "92"))
+FLASHSCORE_AUTO_SOFT_MIN_LEAGUE = float(
+    os.environ.get("FLASHSCORE_AUTO_SOFT_MIN_LEAGUE", "0.55")
+)
+FLASHSCORE_AUTO_SOFT_UNIQUE_GAP = float(
+    os.environ.get("FLASHSCORE_AUTO_SOFT_UNIQUE_GAP", "5")
+)
+# Hours after kickoff before an unscored predicted fixture is "stale awaiting".
+SCORE_AWAITING_STALE_HOURS = float(os.environ.get("SCORE_AWAITING_STALE_HOURS", "6"))
 FLASHSCORE_STATS_ENABLED = os.environ.get(
     "FLASHSCORE_STATS_ENABLED", "1"
 ).strip().lower() in ("1", "true", "yes")

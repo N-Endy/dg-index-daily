@@ -226,3 +226,133 @@ def test_persist_and_confirm(tmp_path, monkeypatch):
     assert int(mr["fthg"]) == 3 and int(mr["ftag"]) == 1
     assert mr["source"] == "flashscore-manual"
     conn.close()
+
+
+def test_auto_promote_unique_high_confidence(tmp_path, monkeypatch):
+    from dg import config
+    from dg.report.score_hints import auto_promote_soft_near_misses
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    config.ensure_dirs()
+    conn = connect(config.DB_PATH)
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            77,
+            "2026-08-28T15:00:00+00:00",
+            "Championship",
+            40,
+            1,
+            2,
+            "Derby County",
+            "Swansea City",
+            "2026-08-28T00:00:00+00:00",
+            "2026-08-28T00:00:00+00:00",
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, predicted_at, model_version, lean, confidence, scores_json, drivers_json
+        ) VALUES (77, '2026-08-28T12:00:00+00:00', 'test', 'Home', 'high', '{}', '[]')
+        """
+    )
+    persist_flashscore_rows(
+        conn,
+        [
+            {
+                "home": "Derby County",
+                "away": "Swansea City",
+                "fthg": 2,
+                "ftag": 0,
+                "league": "ENGLAND: Championship",
+            }
+        ],
+    )
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT id, league, home, away, fthg, ftag FROM flashscore_row"
+        ).fetchall()
+    ]
+    fx = {
+        "fixture_id": 77,
+        "date_utc": "2026-08-28T15:00:00+00:00",
+        "league": "Championship",
+        "home_name": "Derby County",
+        "away_name": "Swansea City",
+        "home_id": 1,
+        "away_id": 2,
+    }
+    n = auto_promote_soft_near_misses(conn, [fx], rows)
+    assert n == 1
+    conn.commit()
+    mr = conn.execute(
+        "SELECT fthg, ftag, fixture_id, source FROM match_result WHERE fixture_id=77"
+    ).fetchone()
+    assert mr is not None
+    assert int(mr["fthg"]) == 2 and int(mr["ftag"]) == 0
+    assert int(mr["fixture_id"]) == 77
+    assert mr["source"] == "flashscore"
+    conn.close()
+
+
+def test_submit_manual_score(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from dg import config
+    from dg.report.score_hints import submit_manual_score
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
+    config.ensure_dirs()
+    conn = connect(config.DB_PATH)
+    init_db(conn)
+    past = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+    conn.execute(
+        """
+        INSERT INTO fixture (
+            fixture_id, date_utc, league, league_id, home_id, away_id,
+            home_name, away_name, first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            88,
+            past,
+            "Test League",
+            1,
+            10,
+            20,
+            "Alpha",
+            "Beta",
+            past,
+            past,
+            "{}",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO prediction (
+            fixture_id, predicted_at, model_version, lean, confidence, scores_json, drivers_json
+        ) VALUES (88, ?, 'test', 'Home', 'medium', '{}', '[]')
+        """,
+        (past,),
+    )
+    conn.commit()
+    result = submit_manual_score(conn, 88, 1, 0)
+    assert result["ft_score"] == "1–0"
+    mr = conn.execute(
+        "SELECT fthg, ftag, source, fixture_id FROM match_result WHERE fixture_id=88"
+    ).fetchone()
+    assert mr is not None
+    assert mr["source"] == "manual"
+    assert int(mr["fixture_id"]) == 88
+    conn.close()

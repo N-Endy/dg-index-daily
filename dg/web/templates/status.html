@@ -114,6 +114,33 @@
     <p class="muted">No graded match_result rows yet.</p>
     {% endif %}
   </article>
+
+  <article class="status-card">
+    <h2>Awaiting scores</h2>
+    {% if awaiting_scores %}
+    <dl>
+      <div><dt>Total awaiting</dt><dd>{{ awaiting_scores.n_awaiting }}</dd></div>
+      <div><dt>Stale (≥ {{ awaiting_scores.stale_hours }}h past KO)</dt><dd>{{ awaiting_scores.n_stale }}</dd></div>
+      <div><dt>Last 24h</dt><dd>{{ awaiting_scores.buckets.last_24h }}</dd></div>
+      <div><dt>1–3 days</dt><dd>{{ awaiting_scores.buckets.d1_to_d3 }}</dd></div>
+      <div><dt>3d–lookback</dt><dd>{{ awaiting_scores.buckets.d3_to_lookback }}</dd></div>
+      <div><dt>Older than lookback</dt><dd>{{ awaiting_scores.buckets.older_than_lookback }}</dd></div>
+    </dl>
+    {% if awaiting_scores.n_stale %}
+    <p class="muted">Target: 0 stale awaiting after a clean score cron inside the lookback window.</p>
+    {% endif %}
+    {% if awaiting_scores.near_misses %}
+    <h3 class="status-subhead">Top near-misses</h3>
+    <ul class="status-list">
+      {% for nm in awaiting_scores.near_misses %}
+      <li>{{ nm.fixture }} ({{ nm.date }}) → {{ nm.scraped }} · name {{ nm.name_avg }} · league {{ nm.league_score }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% else %}
+    <p class="muted">No awaiting-score summary.</p>
+    {% endif %}
+  </article>
 </section>
 
 <p class="status-foot"><a href="/">← Back to dashboard</a></p>

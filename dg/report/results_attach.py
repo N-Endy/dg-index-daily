@@ -1,8 +1,9 @@
 """Attach match_result FT scores to fixture/prediction rows for the web UI."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 _FTR_TO_LEAN = {"H": "Home", "D": "Draw", "A": "Away"}
 
@@ -107,6 +108,7 @@ def result_fields_from_row(mr: Any) -> Dict[str, Any]:
         "ay": _g("ay"),
         "hr": _g("hr"),
         "ar": _g("ar"),
+        "fixture_id": _g("fixture_id"),
     }
     return {
         "completed": bool(ftr),
@@ -134,16 +136,55 @@ def _stat_richness(mr: Any) -> int:
     return n
 
 
-def build_result_index(rows: List[Any]) -> Dict[Tuple[int, int, str], Any]:
+@dataclass
+class ResultIndex:
+    """Joinable FT results by fixture_id (preferred) and team-day key."""
+
+    by_teams: Dict[Tuple[int, int, str], Any] = field(default_factory=dict)
+    by_fixture: Dict[int, Any] = field(default_factory=dict)
+
+    def get(self, key: Tuple[int, int, str], default: Any = None) -> Any:
+        """Dict-like access for callers that index by team-day tuples."""
+        return self.by_teams.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.by_teams
+
+    def __getitem__(self, key: Tuple[int, int, str]) -> Any:
+        return self.by_teams[key]
+
+
+def build_result_index(rows: List[Any]) -> ResultIndex:
     """
-    Index match_result rows by (home_team_id, away_team_id, YYYY-MM-DD).
+    Index match_result rows by fixture_id and (home_team_id, away_team_id, day).
 
     When multiple sources collide on the same key, prefer the row with more
     non-null match stats. Equal richness keeps the incumbent (stable).
     """
-    index: Dict[Tuple[int, int, str], Any] = {}
+    by_teams: Dict[Tuple[int, int, str], Any] = {}
+    by_fixture: Dict[int, Any] = {}
     for mr in rows:
         get = mr.__getitem__ if not isinstance(mr, dict) else mr.get
+        try:
+            if not get("ftr"):
+                continue
+        except (KeyError, IndexError, TypeError):
+            continue
+
+        try:
+            fid = get("fixture_id")
+        except (KeyError, IndexError, TypeError):
+            fid = None
+        if fid is not None:
+            try:
+                fid_i = int(fid)
+            except (TypeError, ValueError):
+                fid_i = None
+            if fid_i is not None:
+                existing_f = by_fixture.get(fid_i)
+                if existing_f is None or _stat_richness(mr) > _stat_richness(existing_f):
+                    by_fixture[fid_i] = mr
+
         try:
             hid, aid = get("home_team_id"), get("away_team_id")
             day = normalize_result_day(get("date"))
@@ -151,54 +192,63 @@ def build_result_index(rows: List[Any]) -> Dict[Tuple[int, int, str], Any]:
             continue
         if hid is None or aid is None or not day:
             continue
-        if not get("ftr"):
-            continue
         key = (int(hid), int(aid), day)
-        existing = index.get(key)
+        existing = by_teams.get(key)
         if existing is None or _stat_richness(mr) > _stat_richness(existing):
-            index[key] = mr
-    return index
+            by_teams[key] = mr
+    return ResultIndex(by_teams=by_teams, by_fixture=by_fixture)
 
 
 def lookup_result(
-    index: Dict[Tuple[int, int, str], Any],
+    index: Union[ResultIndex, Dict[Tuple[int, int, str], Any]],
     *,
     home_id: Any,
     away_id: Any,
     date_utc: Optional[str],
+    fixture_id: Any = None,
 ) -> Optional[Any]:
+    by_fixture = getattr(index, "by_fixture", None)
+    if by_fixture is not None and fixture_id is not None:
+        try:
+            hit = by_fixture.get(int(fixture_id))
+            if hit is not None:
+                return hit
+        except (TypeError, ValueError):
+            pass
+
+    by_teams = getattr(index, "by_teams", index)
     day = fixture_day(date_utc)
     if home_id is None or away_id is None or not day:
         return None
     try:
-        return index.get((int(home_id), int(away_id), day))
+        return by_teams.get((int(home_id), int(away_id), day))
     except (TypeError, ValueError):
         return None
 
 
 def attach_result_to_prediction(
     pred: Dict[str, Any],
-    index: Dict[Tuple[int, int, str], Any],
+    index: Union[ResultIndex, Dict[Tuple[int, int, str], Any]],
 ) -> Dict[str, Any]:
     mr = lookup_result(
         index,
         home_id=pred.get("home_id"),
         away_id=pred.get("away_id"),
         date_utc=pred.get("date_utc"),
+        fixture_id=pred.get("fixture_id"),
     )
     pred.update(result_fields_from_row(mr))
     return pred
 
 
-def load_result_index(conn: Any) -> Dict[Tuple[int, int, str], Any]:
+def load_result_index(conn: Any) -> ResultIndex:
     rows = conn.execute(
         """
         SELECT home_team_id, away_team_id, date, fthg, ftag, ftr,
-               hthg, htag, hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar
+               hthg, htag, hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
+               fixture_id
         FROM match_result
         WHERE ftr IS NOT NULL
-          AND home_team_id IS NOT NULL
-          AND away_team_id IS NOT NULL
         """
     ).fetchall()
     return build_result_index(list(rows))

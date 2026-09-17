@@ -571,6 +571,45 @@ nav a[aria-current="page"] {
   color: #fff;
 }
 
+.dg-score-manual {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.4rem;
+  margin-left: 0.25rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: #f4f4f2;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  cursor: pointer;
+}
+.dg-score-manual:hover {
+  background: #e8e8e4;
+}
+
+.dg-score-manual-form {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.dg-score-manual-form input {
+  width: 3.5rem;
+  padding: 0.25rem 0.35rem;
+}
+.dg-score-manual-save {
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
 .dg-score-confirm-dialog {
   position: fixed;
   inset: 0;

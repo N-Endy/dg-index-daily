@@ -21,7 +21,11 @@ from dg.report.loaders import (
     parse_market_filters,
     today_wat,
 )
-from dg.report.score_hints import apply_score_hints_to_predictions, confirm_score_link
+from dg.report.score_hints import (
+    apply_score_hints_to_predictions,
+    confirm_score_link,
+    submit_manual_score,
+)
 from dg.report.status import load_status_context
 from dg.storage.db import db_session
 
@@ -47,6 +51,12 @@ def _score_link_authorized(request: Request) -> bool:
 class ScoreConfirmBody(BaseModel):
     fixture_id: int = Field(..., ge=1)
     flashscore_row_id: int = Field(..., ge=1)
+
+
+class ManualScoreBody(BaseModel):
+    fixture_id: int = Field(..., ge=1)
+    fthg: int = Field(..., ge=0)
+    ftag: int = Field(..., ge=0)
 
 
 @app.get("/healthz")
@@ -196,6 +206,34 @@ def score_link_confirm(request: Request, body: ScoreConfirmBody):
     try:
         with db_session() as conn:
             result = confirm_score_link(conn, body.fixture_id, body.flashscore_row_id)
+        return {"ok": True, **result}
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.post("/api/score/manual")
+def score_manual(request: Request, body: ManualScoreBody):
+    if not config.SCORE_LINK_SECRET:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "SCORE_LINK_SECRET is not set — cannot enter manual scores",
+            },
+            status_code=403,
+        )
+    if not _score_link_authorized(request):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Unauthorized — open /score-link/unlock?token=… first",
+            },
+            status_code=403,
+        )
+    try:
+        with db_session() as conn:
+            result = submit_manual_score(conn, body.fixture_id, body.fthg, body.ftag)
         return {"ok": True, **result}
     except ValueError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
