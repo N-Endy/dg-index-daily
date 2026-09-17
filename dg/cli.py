@@ -271,6 +271,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
             stages["calibration_rows"] = store_market_calibration(conn, backtest)
             train_if_ready(conn)
+            from dg.model.residual import train_residual_models
+
+            stages["residual"] = train_residual_models(conn)
             from dg.model.registry import model_version
 
             stages["market_prob_calibration"] = fit_market_prob_calibration(
@@ -422,12 +425,14 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     init_db()
     with db_session() as conn:
         from dg.model.registry import model_version
+        from dg.model.residual import train_residual_models
 
         mv = model_version()
         summary = fit_calibration(conn, model_version=mv)
         market = fit_market_prob_calibration(conn, model_version=mv)
-        print(json.dumps({"1x2": summary, "markets": market}, indent=2))
-        if summary.get("fitted") or market.get("fitted"):
+        residual = train_residual_models(conn)
+        print(json.dumps({"1x2": summary, "markets": market, "residual": residual}, indent=2))
+        if summary.get("fitted") or market.get("fitted") or residual.get("heads"):
             return config.EXIT_OK
         return config.EXIT_PARTIAL
 

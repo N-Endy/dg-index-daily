@@ -146,7 +146,7 @@ def test_fixtures_ingest_and_predict(db, sample_meta, sample_ratings, sample_fix
     assert pred["lean"] in ("Home", "Draw", "Away")
     assert pred["confidence"] in ("low", "medium", "high")
     assert pred["drivers"]
-    assert "rule" in pred["note"]
+    assert "sim prior" in pred["note"].lower() or "exploratory" in pred["note"].lower()
     assert pred.get("markets")
     assert "goals_2_5" in pred["markets"]
     assert pred["markets"]["goals_2_5"]["lean"] in ("Over", "Under")

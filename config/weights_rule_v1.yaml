@@ -1,15 +1,16 @@
-# rule_v2 composite weights — includes DG Rating strength gap
+# rule_v3 composite weights — DG Rating strength + luck fade; probs come from sim prior
 # Positive weight on a feature contributes to home lean when feature > 0
-version: rule_v2
+version: rule_v3
 weights:
-  rating_gap: 0.35             # venue-aware home_rating - away_rating (primary strength)
-  pressing_mismatch: 0.15      # home_ppda_z - away_ppda_z
+  rating_gap: 0.32             # venue-aware home_rating - away_rating (primary strength)
+  pressing_mismatch: 0.14      # home_ppda_z - away_ppda_z
   pace_clash: 0.03
-  attack_vs_control_home: 0.12
-  attack_vs_control_away: -0.12
+  attack_vs_control_home: 0.11
+  attack_vs_control_away: -0.11
   aggression_asymmetry: 0.05
-  efficiency_edge: 0.15
-  form_trend: 0.08             # dgr_index trend slope gap
+  efficiency_edge: 0.14
+  form_trend: 0.07             # dgr_index trend slope gap
+  luck_gap: 0.03               # fade sides converting above xG (sign flipped in scorer)
 character:
   open_pace_sum_gte: 120
   tight_pace_sum_lte: 80

@@ -137,6 +137,15 @@ SUPERVISED_ENABLED = os.environ.get("SUPERVISED_ENABLED", "0").strip().lower() i
     "true",
     "yes",
 )
+# Residual logistic heads (accuracy / value); applied only when holdout beats baseline
+RESIDUAL_MIN_TRAIN = int(os.environ.get("RESIDUAL_MIN_TRAIN", "200"))
+RESIDUAL_MIN_HOLDOUT = int(os.environ.get("RESIDUAL_MIN_HOLDOUT", "80"))
+RESIDUAL_HOLDOUT_FRAC = float(os.environ.get("RESIDUAL_HOLDOUT_FRAC", "0.25"))
+RESIDUAL_ENABLED = os.environ.get("RESIDUAL_ENABLED", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 MARKET_DYNAMIC_LINES = os.environ.get("MARKET_DYNAMIC_LINES", "1").strip().lower() not in (
     "0",
     "false",

@@ -1,7 +1,7 @@
-# goals_v1 — Poisson expected-goals layer from DG Rating ORtg / DRtg
-version: goals_v1
+# goals_v2 — prefer DataGaffer Dixon–Coles / percents prior; homemade Poisson is fallback
+version: goals_v2
 
-# Multiplicative ratio model:
+# Multiplicative ratio model (fallback only when sim matrix/percents missing):
 #   lam_home = (home_att / L) * (away_def / L) * L * home_adv * coef_scale
 home_advantage: 1.08
 default_league_avg: 1.35
@@ -10,5 +10,7 @@ max_goals: 8
 fh_goal_share: 0.42            # share of full-time lambda assigned to first half
 min_lambda: 0.15
 max_lambda: 4.5
-dixon_coles_enabled: false
+# Homemade DC only when DG matrix absent; live path prefers sim correct_score.matrix
+dixon_coles_enabled: true
 dixon_coles_rho: -0.05
+prefer_sim_prior: true

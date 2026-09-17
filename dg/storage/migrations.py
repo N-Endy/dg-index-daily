@@ -13,6 +13,24 @@ logger = logging.getLogger(__name__)
 
 _STRENGTH_COLS = list(STRENGTH_COLUMNS)
 _PRED_EXTRA = ("markets_json", "probs_json")
+_PROJECTION_EXTRA = (
+    "xgot_home",
+    "xgot_away",
+    "xgot_total",
+    "sot_home",
+    "sot_away",
+    "sot_total",
+    "value_score",
+    "value_over_2_5",
+    "value_btts",
+    "regression_home",
+    "regression_away",
+    "congestion_home",
+    "congestion_away",
+    "over_3_5_pct",
+    "sot_over_8_5_pct",
+    "projected_meta_json",
+)
 
 
 def _table_cols(conn, table: str) -> set:
@@ -40,6 +58,16 @@ def _ensure_columns(conn) -> None:
     if "league_country" not in fixture_cols:
         conn.execute("ALTER TABLE fixture ADD COLUMN league_country TEXT")
 
+    proj_cols = _table_cols(conn, "fixture_projection")
+    for col in _PROJECTION_EXTRA:
+        if col not in proj_cols:
+            if col in ("congestion_home", "congestion_away"):
+                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} INTEGER")
+            elif col == "projected_meta_json":
+                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} TEXT")
+            else:
+                conn.execute(f"ALTER TABLE fixture_projection ADD COLUMN {col} REAL")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS model_calibration (
@@ -51,6 +79,26 @@ def _ensure_columns(conn) -> None:
             intercept REAL NOT NULL,
             n_labels INTEGER NOT NULL,
             UNIQUE (model_version, outcome)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS residual_model (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fitted_at TEXT NOT NULL,
+            model_key TEXT NOT NULL,
+            market_key TEXT NOT NULL,
+            head TEXT NOT NULL,
+            n_train INTEGER NOT NULL,
+            n_holdout INTEGER NOT NULL,
+            holdout_brier REAL,
+            baseline_brier REAL,
+            beat_baseline INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            weights_json TEXT NOT NULL,
+            feature_names_json TEXT NOT NULL,
+            UNIQUE (model_key, market_key, head)
         )
         """
     )
@@ -111,11 +159,83 @@ def backfill_league_country(conn) -> int:
     return updated
 
 
+def backfill_projection_typed(conn) -> int:
+    """Parse sim_stats_json into typed projection columns where still NULL."""
+    from dg.model.sim_prior import extract_sim_fields
+
+    proj_cols = _table_cols(conn, "fixture_projection")
+    if "xgot_total" not in proj_cols:
+        return 0
+    rows = conn.execute(
+        """
+        SELECT id, sim_stats_json FROM fixture_projection
+        WHERE sim_stats_json IS NOT NULL
+          AND (xgot_total IS NULL AND sot_total IS NULL AND value_score IS NULL)
+        """
+    ).fetchall()
+    updated = 0
+    for r in rows:
+        try:
+            sim = json.loads(r["sim_stats_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(sim, dict):
+            continue
+        fields = extract_sim_fields(sim)
+        meta = {
+            "top_scores": fields.get("top_scores") or [],
+            "correct_score_model": fields.get("correct_score_model"),
+            "has_score_matrix": fields.get("has_score_matrix"),
+            "shot_accuracy_total": fields.get("shot_accuracy_total"),
+            "sot_conversion_total": fields.get("sot_conversion_total"),
+            "big_chances_total": fields.get("big_chances_total"),
+            "fh_sot_total": fields.get("fh_sot_total"),
+            "score_first_home_pct": fields.get("score_first_home_pct"),
+        }
+        conn.execute(
+            """
+            UPDATE fixture_projection SET
+                xgot_home=?, xgot_away=?, xgot_total=?,
+                sot_home=?, sot_away=?, sot_total=?,
+                value_score=?, value_over_2_5=?, value_btts=?,
+                regression_home=?, regression_away=?,
+                congestion_home=?, congestion_away=?,
+                over_3_5_pct=?, sot_over_8_5_pct=?,
+                projected_meta_json=?
+            WHERE id=?
+            """,
+            (
+                fields.get("xgot_home"),
+                fields.get("xgot_away"),
+                fields.get("xgot_total"),
+                fields.get("sot_home"),
+                fields.get("sot_away"),
+                fields.get("sot_total"),
+                fields.get("value_score"),
+                fields.get("value_over_2_5"),
+                fields.get("value_btts"),
+                fields.get("regression_home"),
+                fields.get("regression_away"),
+                1 if fields.get("congestion_home") else 0,
+                1 if fields.get("congestion_away") else 0,
+                fields.get("over_3_5_pct"),
+                fields.get("sot_over_8_5_pct"),
+                json.dumps(meta),
+                r["id"],
+            ),
+        )
+        updated += 1
+    if updated:
+        logger.info("Backfilled typed sim fields on %d fixture_projection rows", updated)
+    return updated
+
+
 def migrate(db_path: Optional[Path] = None) -> None:
     """Apply schema.sql and additive column migrations + strength backfill."""
     conn = init_db(connect(db_path) if db_path is not None else None)
     _ensure_columns(conn)
     backfill_strength_from_raw(conn)
     backfill_league_country(conn)
+    backfill_projection_typed(conn)
     conn.commit()
     conn.close()

@@ -32,13 +32,18 @@ ECHO_DELTA = 3
 
 SYSTEM_PROMPT = (
     "You are a conservative football analyst reviewing pre-filtered directional leans "
-    "from a rule-based ratings model (DataGaffer DG Index). "
-    "For each fixture you may see multiple market candidates that already passed hard gates. "
+    "from a rule-based ratings model (DataGaffer DG Index) that uses the DataGaffer "
+    "Dixon–Coles simulation as its probability prior. "
+    "For each fixture you may see multiple market candidates that already passed hard gates, "
+    "plus a structured matchScript (top scores, xGOT/SOT, value, congestion, regression) "
+    "and similarCases (empirical hit rates for comparable setups). "
     "Pick at most ONE candidate per fixture to publish (or none). "
-    "Judge ONLY the provided fields (probability, confidence, DG/book agreement, drivers, style). "
+    "Judge ONLY the provided fields. "
     "Do not invent stats, injuries, lineups, or odds. "
     "Do NOT return a numeric 0-100 score — estimated publish chance is computed downstream from "
     "measured market hit rates (keyed by source agreement) plus your coherence judgment. "
+    "Skip when congestion + high Over/SOT conflict, when value_score strongly opposes the lean, "
+    "or when drivers contradict the match script. "
     "For the chosen candidate set: "
     "verdict='publish' or 'skip'; "
     "coherence 0-3 (do drivers and match style support this market and direction); "
@@ -142,7 +147,7 @@ def model_strength_band(prob: Any) -> float:
 
 def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
     why = list(pick.get("why") or [])[:4]
-    return {
+    out: Dict[str, Any] = {
         "fixtureId": pick.get("fixture_id"),
         "marketKey": pick.get("market_key"),
         "league": pick.get("league"),
@@ -162,6 +167,9 @@ def candidate_payload(pick: Dict[str, Any]) -> Dict[str, Any]:
         "style": pick.get("style_label"),
         "why": why,
     }
+    if pick.get("similarCases"):
+        out["similarCases"] = pick["similarCases"]
+    return out
 
 
 def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,7 +183,7 @@ def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
     rng = random.Random(seed)
     shuffled = list(candidates)
     rng.shuffle(shuffled)
-    return {
+    out: Dict[str, Any] = {
         "fixtureId": group.get("fixture_id"),
         "homeTeam": group.get("home_name"),
         "awayTeam": group.get("away_name"),
@@ -183,6 +191,47 @@ def fixture_group_payload(group: Dict[str, Any]) -> Dict[str, Any]:
         "kickoff": group.get("kickoff_display") or group.get("date_utc"),
         "candidates": [candidate_payload(c) for c in shuffled],
     }
+    if group.get("matchScript"):
+        out["matchScript"] = group["matchScript"]
+    return out
+
+
+def enrich_vet_groups_with_briefs(
+    conn,
+    groups: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Attach matchScript + similarCases to fixture groups / candidates."""
+    from dg.ai.match_brief import (
+        load_fixture_sim,
+        match_script_from_sim,
+        similar_case_summary,
+    )
+
+    enriched: List[Dict[str, Any]] = []
+    for g in groups:
+        g2 = dict(g)
+        fid = g.get("fixture_id")
+        try:
+            fid_i = int(fid) if fid is not None else None
+        except (TypeError, ValueError):
+            fid_i = None
+        if fid_i is not None:
+            ctx = load_fixture_sim(conn, fid_i)
+            g2["matchScript"] = match_script_from_sim(ctx)
+        cands = []
+        for c in list(g.get("candidates") or []):
+            c2 = dict(c)
+            c2["similarCases"] = similar_case_summary(
+                conn,
+                market_key=str(c.get("market_key") or ""),
+                lean=str(c.get("lean") or ""),
+                agreement_key=str(c.get("agreement_key") or "all"),
+                league_id=c.get("league_id") or g.get("league_id"),
+            )
+            cands.append(c2)
+        g2["candidates"] = cands
+        enriched.append(g2)
+    return enriched
 
 
 def _extract_json_object(raw: str) -> Dict[str, Any]:
@@ -723,7 +772,8 @@ def vet_strongest_for_day(
 
     ctx = _build_vet_context(day_key)
     groups = list(ctx.get("vet_groups") or [])
-    candidates = list(ctx.get("vet_candidates") or [])
+    groups = enrich_vet_groups_with_briefs(conn, groups)
+    candidates = flatten_vet_groups(groups)
     summary["n_fixtures"] = len(groups)
     summary["n_candidates"] = len(candidates)
     if not groups:
@@ -751,6 +801,8 @@ def vet_strongest_for_day(
             user = (
                 f"For each fixture below, pick at most one market candidate to publish "
                 f"for {day_key} (batch {bi}/{len(batches)}). "
+                f"Use matchScript and similarCases as coherence checks only — "
+                f"do not invent injuries or lineups. "
                 f"Return component judgments (coherence, concerns, verdict). "
                 f"Use verdict=skip or omit fixtures you would not publish. "
                 f"Do not return a 0-100 score. Be selective.\n"

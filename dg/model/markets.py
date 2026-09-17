@@ -303,7 +303,16 @@ def predict_markets(
     out: Dict[str, Any] = {"version": markets_model_tag()}
 
     # --- Goals O/U 2.5 ---
+    from dg.model.sim_prior import congestion_penalty, extract_sim_fields, luck_fade
+
+    sim_fields = extract_sim_fields(sim)
+    cong = congestion_penalty(sim_fields)
+    luck = luck_fade(sim_fields)
+
     p_over = gp.get("over_2_5")
+    # Soft congestion / luck adjustment on sim-prior probability
+    if p_over is not None:
+        p_over = min(0.95, max(0.05, float(p_over) - cong - luck))
     g_w = cfg.get("goals_2_5") or {}
     g_score, _, g_drv = _weighted(
         {
@@ -312,6 +321,8 @@ def predict_markets(
             "nec_sum": (nec_sum - 100.0) / 100.0,
             "xg_total_bias": (sim_xg_t - 2.5) / 2.0 if sim_xg_t else 0.0,
             "sim_over_bias": (_num(perc.get("over_2_5_pct"), 50.0) - 50.0) / 50.0,
+            "congestion_fade": -cong * 10.0,
+            "luck_fade": -luck * 10.0,
         },
         g_w,
     )
@@ -336,6 +347,8 @@ def predict_markets(
 
     # --- Goals O/U 3.5 ---
     p_over35 = gp.get("over_3_5")
+    if p_over35 is not None:
+        p_over35 = min(0.95, max(0.05, float(p_over35) - cong - luck))
     g35_w = cfg.get("goals_3_5") or {}
     g35_score, _, g35_drv = _weighted(
         {
@@ -344,6 +357,8 @@ def predict_markets(
             "nec_sum": (nec_sum - 100.0) / 100.0,
             "xg_total_bias": (sim_xg_t - 3.5) / 2.0 if sim_xg_t else 0.0,
             "sim_over_bias": (_num(perc.get("over_3_5_pct"), 50.0) - 50.0) / 50.0,
+            "congestion_fade": -cong * 10.0,
+            "luck_fade": -luck * 10.0,
         },
         g35_w,
     )
@@ -601,29 +616,46 @@ def predict_markets(
         line=shots_line,
     )
 
-    # --- SOT O/U (dynamic line) ---
+    # --- SOT O/U (dynamic line) — SOT proj + ladder, quality tilt from xGOT ---
+    from dg.model.sim_prior import sot_over_probability
+
     sot_line, sot_pct = select_line(perc, "sot_8_5")
     so_w = cfg.get("sot_8_5") or {}
-    so_score, _, so_drv = _weighted(
+    p_sot, sot_drivers = sot_over_probability(sim, line=sot_line, sim_pct=sot_pct)
+    xgot_t = _num(sim_fields.get("xgot_total"))
+    acc = _num(sim_fields.get("shot_accuracy_total"), 35.0)
+    # Near-line quality signal only (xGOT is not SOT volume)
+    quality_nudge = 0.0
+    if sot_t and abs(sot_t - sot_line) < 2.5 and xgot_t:
+        quality_nudge = max(-0.15, min(0.15, (xgot_t - 1.5) / 3.0))
+    so_score, _, so_drv_w = _weighted(
         {
-            "pace_clash": (pace - 100.0) / 100.0,
-            "nec_sum": (nec_sum - 100.0) / 100.0,
-            "sot_proj_bias": (sot_t - sot_line) / 4.0 if sot_t else (pace - 100.0) / 100.0,
+            "xgot_sot_bias": quality_nudge,
+            "sot_proj_bias": (sot_t - sot_line) / 4.0 if sot_t else 0.0,
             "sim_sot_over_bias": (_num(sot_pct, 50.0) - 50.0) / 50.0,
+            "shot_quality_bias": (acc - 35.0) / 50.0,
+            "pace_clash": (pace - 100.0) / 100.0,
         },
         so_w,
     )
-    so_lean = _binary_lean(so_score, "Over", "Under")
+    if p_sot is not None:
+        so_lean = _lean_from_prob(p_sot, "Over", "Under")
+        so_prob = _lean_side_prob(p_sot, so_lean, "Over")
+        so_drv = sot_drivers or so_drv_w
+    else:
+        so_lean = _binary_lean(so_score, "Over", "Under")
+        so_prob = _lean_side_prob(_heuristic_p_pos(so_score), so_lean, "Over")
+        so_drv = so_drv_w
     out["sot_8_5"] = _pack(
         key="sot_8_5",
         label=f"SOT O/U {sot_line}",
         lean=so_lean,
-        confidence=_conf(so_score, matchup, cfg),
-        score=so_score,
+        confidence=_conf(so_score if p_sot is None else (p_sot - 0.5) * 2.0, matchup, cfg),
+        score=so_score if p_sot is None else round((p_sot - 0.5) * 2.0, 4),
         drivers=so_drv,
         dg_lean=_ou_from_pct(sot_pct),
         book_lean=None,
-        prob=_lean_side_prob(_heuristic_p_pos(so_score), so_lean, "Over"),
+        prob=so_prob,
         line=sot_line,
     )
 

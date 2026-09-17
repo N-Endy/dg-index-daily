@@ -1,5 +1,5 @@
-# markets_v3 — P(lean) convention for all markets (direction fix for heuristic Unders)
-version: markets_v3
+# markets_v4 — DG sim prior + xGOT-led SOT; P(lean) convention for all markets
+version: markets_v4
 
 confidence:
   high_abs_score_gte: 0.30
@@ -10,18 +10,22 @@ confidence:
 # Positive score → first lean in each pair (Over / Yes / Home)
 # poisson_*_bias: (prob - 0.5) * 2  — primary for goals-related markets
 goals_2_5:
-  poisson_over_bias: 0.55
-  pace_clash: 0.15
-  nec_sum: 0.15
-  xg_total_bias: 0.10
-  sim_over_bias: 0.05
+  poisson_over_bias: 0.50
+  pace_clash: 0.12
+  nec_sum: 0.12
+  xg_total_bias: 0.12
+  sim_over_bias: 0.08
+  congestion_fade: 0.03
+  luck_fade: 0.03
 
 goals_3_5:
-  poisson_over_bias: 0.55
-  pace_clash: 0.15
-  nec_sum: 0.15
-  xg_total_bias: 0.10          # (sim_xg_total - 3.5) / 2.0
-  sim_over_bias: 0.05
+  poisson_over_bias: 0.50
+  pace_clash: 0.12
+  nec_sum: 0.12
+  xg_total_bias: 0.12          # (sim_xg_total - 3.5) / 2.0
+  sim_over_bias: 0.08
+  congestion_fade: 0.03
+  luck_fade: 0.03
 
 btts:
   poisson_btts_bias: 0.55
@@ -70,10 +74,12 @@ shots_25_5:
   sim_shots_over_bias: 0.20
 
 sot_8_5:
-  pace_clash: 0.30
-  nec_sum: 0.25
-  sot_proj_bias: 0.35
-  sim_sot_over_bias: 0.10
+  # xGOT-led; pace demoted
+  xgot_sot_bias: 0.45
+  sot_proj_bias: 0.25
+  sim_sot_over_bias: 0.20
+  shot_quality_bias: 0.05
+  pace_clash: 0.05
 
 cards_3_5:
   agix_sum: 0.35

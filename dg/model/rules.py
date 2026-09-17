@@ -28,6 +28,8 @@ def _score_matchup(matchup: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[float,
         "aggression_asymmetry": matchup["aggression_asymmetry"] / 50.0,
         "efficiency_edge": matchup["efficiency_edge"] / 50.0,
         "form_trend": matchup["form_trend"] / 5.0,
+        # Positive luck_gap = home finishing above xG → mild fade of home lean
+        "luck_gap": -float(matchup.get("luck_gap") or 0.0) / 2.0,
     }
     total = 0.0
     weighted: Dict[str, float] = {}
@@ -149,12 +151,6 @@ def predict_fixture(
     score, weighted, drivers = _score_matchup(matchup, cfg)
     character = _character(matchup, cfg)
 
-    league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
-    goal_probs = predict_goals(matchup, league_avg=league_avg)
-    blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
-    lean = _lean_from_probs(blended)
-    confidence = _confidence(score, matchup, cfg, probs=blended)
-
     proj = conn.execute(
         """
         SELECT * FROM fixture_projection
@@ -168,6 +164,24 @@ def predict_fixture(
     if proj:
         matchup["sim_xg_home"] = proj["sim_xg_home"]
         matchup["sim_xg_away"] = proj["sim_xg_away"]
+
+    league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
+    # Prefer DataGaffer Dixon–Coles / percents; homemade Poisson is fallback only
+    goal_probs = predict_goals(matchup, league_avg=league_avg, sim=sim)
+    blended = _blend_1x2(goal_probs, score, cfg, conn=conn, model_version=version)
+
+    # Optional residual accuracy head (no book features) — only if trained & enabled
+    try:
+        from dg.model.residual import apply_residual_1x2
+
+        blended = apply_residual_1x2(
+            conn, blended, matchup=matchup, sim=sim, book=book, head="accuracy"
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    lean = _lean_from_probs(blended)
+    confidence = _confidence(score, matchup, cfg, probs=blended)
 
     markets = predict_markets(matchup, book=book, sim=sim, goal_probs=goal_probs)
     from dg.model.supervised import apply_market_prob_calibration, load_market_prob_calibration
@@ -187,9 +201,12 @@ def predict_fixture(
         "over_2_5": goal_probs.get("over_2_5"),
         "btts_yes": goal_probs.get("btts_yes"),
         "goals_version": goal_probs.get("version"),
+        "prior_source": goal_probs.get("prior_source"),
         "dgrtg_home": matchup.get("dgrtg_home"),
         "dgrtg_away": matchup.get("dgrtg_away"),
         "rating_gap": matchup.get("rating_gap"),
+        "xgot_total": goal_probs.get("xgot_total"),
+        "value_score": goal_probs.get("value_score"),
     }
 
     result = {
@@ -222,7 +239,7 @@ def predict_fixture(
         "book_lean": book_lean(book),
         "sim_xg_home": proj["sim_xg_home"] if proj else None,
         "sim_xg_away": proj["sim_xg_away"] if proj else None,
-        "note": "rule-based composite + Poisson goals — not a trained model",
+        "note": "DG sim prior (Dixon–Coles/percents) + style tilt — exploratory, not betting advice",
     }
 
     if persist:

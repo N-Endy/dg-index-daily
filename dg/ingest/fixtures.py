@@ -38,6 +38,8 @@ def ingest_fixtures(
     Upsert fixtures and append projections.
     Returns (n_upserted, n_projections, unresolved_warnings).
     """
+    from dg.model.sim_prior import extract_sim_fields
+
     now = datetime.now(timezone.utc).isoformat()
     warnings: List[str] = []
     n_fix = 0
@@ -156,6 +158,20 @@ def ingest_fixtures(
         percents = sim.get("percents") or {}
         xg = _nested(sim, "xg") or {}
         book = fx.get("book_odds") or {}
+        fields = extract_sim_fields(sim if isinstance(sim, dict) else {})
+        meta = {
+            "top_scores": fields.get("top_scores") or [],
+            "correct_score_model": fields.get("correct_score_model"),
+            "has_score_matrix": fields.get("has_score_matrix"),
+            "shot_accuracy_total": fields.get("shot_accuracy_total"),
+            "sot_conversion_total": fields.get("sot_conversion_total"),
+            "big_chances_total": fields.get("big_chances_total"),
+            "fh_sot_total": fields.get("fh_sot_total"),
+            "score_first_home_pct": fields.get("score_first_home_pct"),
+            "score_first_away_pct": fields.get("score_first_away_pct"),
+            "team_ratings_present": isinstance(fx.get("team_ratings"), dict),
+            "two_leg_ctx": fields.get("two_leg_ctx"),
+        }
 
         conn.execute(
             """
@@ -164,8 +180,15 @@ def ingest_fixtures(
                 sim_xg_home, sim_xg_away,
                 home_win_pct, draw_pct, away_win_pct,
                 over_2_5_pct, btts_pct, matchup_pace_score,
-                book_odds_json, sim_stats_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                book_odds_json, sim_stats_json,
+                xgot_home, xgot_away, xgot_total,
+                sot_home, sot_away, sot_total,
+                value_score, value_over_2_5, value_btts,
+                regression_home, regression_away,
+                congestion_home, congestion_away,
+                over_3_5_pct, sot_over_8_5_pct,
+                projected_meta_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 fixture_id,
@@ -181,6 +204,22 @@ def ingest_fixtures(
                 _f(_nested(sim, "matchup_pace", "score")),
                 json.dumps(book),
                 json.dumps(sim),
+                fields.get("xgot_home"),
+                fields.get("xgot_away"),
+                fields.get("xgot_total"),
+                fields.get("sot_home"),
+                fields.get("sot_away"),
+                fields.get("sot_total"),
+                fields.get("value_score"),
+                fields.get("value_over_2_5"),
+                fields.get("value_btts"),
+                fields.get("regression_home"),
+                fields.get("regression_away"),
+                1 if fields.get("congestion_home") else 0,
+                1 if fields.get("congestion_away") else 0,
+                fields.get("over_3_5_pct"),
+                fields.get("sot_over_8_5_pct"),
+                json.dumps(meta),
             ),
         )
         n_proj += 1

@@ -230,10 +230,47 @@ def predict_goals(
     *,
     league_avg: Optional[float] = None,
     cfg: Optional[Dict[str, Any]] = None,
+    sim: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Convenience: expected goals + derived market probabilities."""
+    """
+    Prefer DataGaffer Dixon–Coles / percents prior when ``sim`` is provided.
+    Fall back to homemade Poisson from ORtg/DRtg when the sim prior is missing.
+    """
     cfg = cfg or load_goals_config()
+    if sim:
+        from dg.model.sim_prior import derive_sim_probabilities
+
+        prior = derive_sim_probabilities(sim)
+        if prior and prior.get("home") is not None:
+            # Fill any missing FH keys from homemade share of prior lambdas
+            need_fh = any(
+                prior.get(k) is None
+                for k in ("fh_home", "fh_draw", "fh_away", "fh_over_0_5")
+            )
+            if need_fh:
+                lam_h = float(prior.get("lam_home") or 0)
+                lam_a = float(prior.get("lam_away") or 0)
+                if lam_h <= 0 or lam_a <= 0:
+                    lam_h, lam_a = expected_goals(matchup, league_avg=league_avg, cfg=cfg)
+                fallback = derive_probabilities(lam_h, lam_a, cfg=cfg)
+                for k in (
+                    "fh_home",
+                    "fh_draw",
+                    "fh_away",
+                    "fh_over_0_5",
+                    "fh_under_0_5",
+                    "home_over_1_5",
+                    "away_over_1_5",
+                    "over_3_5",
+                    "under_3_5",
+                ):
+                    if prior.get(k) is None and fallback.get(k) is not None:
+                        prior[k] = fallback[k]
+            prior.setdefault("version", "goals_v2_sim_prior")
+            return prior
+
     lam_h, lam_a = expected_goals(matchup, league_avg=league_avg, cfg=cfg)
     probs = derive_probabilities(lam_h, lam_a, cfg=cfg)
     probs["version"] = cfg.get("version", "goals_v1")
+    probs["prior_source"] = "homemade_poisson"
     return probs

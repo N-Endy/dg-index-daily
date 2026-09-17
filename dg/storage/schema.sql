@@ -113,6 +113,23 @@ CREATE TABLE IF NOT EXISTS fixture_projection (
     matchup_pace_score REAL,
     book_odds_json TEXT,
     sim_stats_json TEXT,
+    -- Typed sim extras (additive; also backfilled via migrations)
+    xgot_home REAL,
+    xgot_away REAL,
+    xgot_total REAL,
+    sot_home REAL,
+    sot_away REAL,
+    sot_total REAL,
+    value_score REAL,
+    value_over_2_5 REAL,
+    value_btts REAL,
+    regression_home REAL,
+    regression_away REAL,
+    congestion_home INTEGER,
+    congestion_away INTEGER,
+    over_3_5_pct REAL,
+    sot_over_8_5_pct REAL,
+    projected_meta_json TEXT,
     UNIQUE (fixture_id, observed_at),
     FOREIGN KEY (fixture_id) REFERENCES fixture(fixture_id) ON DELETE CASCADE,
     FOREIGN KEY (snapshot_id) REFERENCES dg_snapshot(id)
@@ -272,4 +289,21 @@ CREATE TABLE IF NOT EXISTS market_prob_calibration (
     n_weeks INTEGER NOT NULL,
     fitted_at TEXT NOT NULL,
     PRIMARY KEY (model_version, market_key)
+);
+
+CREATE TABLE IF NOT EXISTS residual_model (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fitted_at TEXT NOT NULL,
+    model_key TEXT NOT NULL,
+    market_key TEXT NOT NULL,
+    head TEXT NOT NULL,
+    n_train INTEGER NOT NULL,
+    n_holdout INTEGER NOT NULL,
+    holdout_brier REAL,
+    baseline_brier REAL,
+    beat_baseline INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    weights_json TEXT NOT NULL,
+    feature_names_json TEXT NOT NULL,
+    UNIQUE (model_key, market_key, head)
 );

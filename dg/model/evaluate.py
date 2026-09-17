@@ -214,11 +214,14 @@ def _score_market_row(
     labels: Dict[str, Optional[str]],
     book_odds: Optional[Dict[str, Any]],
     calibration: Optional[Dict[Tuple[str, str, str], List[int]]] = None,
+    sim_stats: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Accumulate Brier and hit-rate for each market that has a label and a stored lean."""
     from dg.report.market_reliability import agreement_tier_from_market, prob_band_for
 
     book_odds = book_odds or {}
+    sim_stats = sim_stats or {}
+    perc = sim_stats.get("percents") if isinstance(sim_stats.get("percents"), dict) else {}
 
     def _record_calibration(market_key: str, m: Dict[str, Any], hit: bool) -> None:
         if calibration is None:
@@ -241,6 +244,49 @@ def _score_market_row(
         bucket[1] += 1
         if hit:
             bucket[0] += 1
+
+    def _dg_pct_prob(key: str, line: Optional[float] = None) -> Optional[float]:
+        """Real DG sim Over/Yes probability from percents or SOT ladder."""
+        mapping = {
+            "goals_2_5": "over_2_5_pct",
+            "goals_3_5": "over_3_5_pct",
+            "btts": "btts_pct",
+            "team_goals_home_1_5": "home_o1_5_pct",
+            "team_goals_away_1_5": "away_o1_5_pct",
+        }
+        if key in mapping and perc.get(mapping[key]) is not None:
+            try:
+                return min(0.98, max(0.02, float(perc[mapping[key]]) / 100.0))
+            except (TypeError, ValueError):
+                return None
+        if key == "sot_8_5":
+            # Prefer exact line ladder key
+            line_s = str(line if line is not None else 8.5).replace(".", "_")
+            raw = perc.get(f"sot_over_{line_s}_pct")
+            if raw is None:
+                raw = perc.get("sot_over_8_5_pct")
+            if raw is not None:
+                try:
+                    return min(0.98, max(0.02, float(raw) / 100.0))
+                except (TypeError, ValueError):
+                    return None
+        if key == "corners_9_5":
+            line_s = str(line if line is not None else 9.5).replace(".", "_")
+            raw = perc.get(f"corners_over_{line_s}_pct")
+            if raw is not None:
+                try:
+                    return min(0.98, max(0.02, float(raw) / 100.0))
+                except (TypeError, ValueError):
+                    return None
+        if key == "shots_25_5":
+            line_s = str(line if line is not None else 25.5).replace(".", "_")
+            raw = perc.get(f"shots_over_{line_s}_pct")
+            if raw is not None:
+                try:
+                    return min(0.98, max(0.02, float(raw) / 100.0))
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     binary_pos = {
         "goals_2_5": "Over",
@@ -288,10 +334,19 @@ def _score_market_row(
             except (TypeError, ValueError):
                 pass
 
-        dg = m.get("dg_lean")
-        if dg in (pos, "Under", "No", "Over", "Yes"):
-            p_dg = 0.62 if dg == pos else 0.38
+        line = m.get("line")
+        try:
+            line_f = float(line) if line is not None else None
+        except (TypeError, ValueError):
+            line_f = None
+        p_dg = _dg_pct_prob(key, line_f)
+        if p_dg is not None:
             bucket["dg_sim"].append(_brier_binary(p_dg, label == pos))
+        else:
+            dg = m.get("dg_lean")
+            if dg in (pos, "Under", "No", "Over", "Yes"):
+                p_fallback = 0.62 if dg == pos else 0.38
+                bucket["dg_sim"].append(_brier_binary(p_fallback, label == pos))
 
     fh_label = labels.get("fh_1x2")
     fh_m = markets.get("fh_1x2")
@@ -331,9 +386,28 @@ def _score_market_row(
                 bucket["book"].append(_brier(book_p, outcome))
             except (TypeError, ValueError):
                 pass
-        dg = fh_m.get("dg_lean")
-        if dg in ("Home", "Draw", "Away"):
-            bucket["dg_sim"].append(_brier(lean_to_probs(dg, "medium"), outcome))
+        # Prefer real FH percents
+        if (
+            perc.get("fh_home_win_pct") is not None
+            and perc.get("fh_draw_pct") is not None
+            and perc.get("fh_away_win_pct") is not None
+        ):
+            try:
+                sim_p = (
+                    float(perc["fh_home_win_pct"]) / 100.0,
+                    float(perc["fh_draw_pct"]) / 100.0,
+                    float(perc["fh_away_win_pct"]) / 100.0,
+                )
+                s = sum(sim_p)
+                if s > 0:
+                    sim_p = (sim_p[0] / s, sim_p[1] / s, sim_p[2] / s)
+                bucket["dg_sim"].append(_brier(sim_p, outcome))
+            except (TypeError, ValueError):
+                pass
+        else:
+            dg = fh_m.get("dg_lean")
+            if dg in ("Home", "Draw", "Away"):
+                bucket["dg_sim"].append(_brier(lean_to_probs(dg, "medium"), outcome))
 
 
 def _accumulate_row(
@@ -393,7 +467,8 @@ def _fetch_joined_prediction_rows(conn, *, model_tag: Optional[str] = None):
         SELECT
             p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
             f.home_id, f.away_id, f.date_utc, f.home_name, f.away_name,
-            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json
+            fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json,
+            fp.sim_stats_json
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id
         LEFT JOIN fixture_projection fp ON fp.id = (
@@ -439,12 +514,19 @@ def _record_row_calibration(
         except (json.JSONDecodeError, TypeError):
             markets = {}
     if markets:
+        sim_stats: Dict[str, Any] = {}
+        if "sim_stats_json" in r.keys() and r["sim_stats_json"]:
+            try:
+                sim_stats = json.loads(r["sim_stats_json"]) or {}
+            except (json.JSONDecodeError, TypeError):
+                sim_stats = {}
         _score_market_row(
             {},
             markets=markets,
             labels=_market_labels(mr, extract_market_lines(markets)),
             book_odds=book_odds,
             calibration=calibration_raw,
+            sim_stats=sim_stats if isinstance(sim_stats, dict) else {},
         )
 
 
@@ -539,12 +621,19 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             except (json.JSONDecodeError, TypeError):
                 markets = {}
         if markets:
+            sim_stats: Dict[str, Any] = {}
+            if "sim_stats_json" in r.keys() and r["sim_stats_json"]:
+                try:
+                    sim_stats = json.loads(r["sim_stats_json"]) or {}
+                except (json.JSONDecodeError, TypeError):
+                    sim_stats = {}
             _score_market_row(
                 market_metrics,
                 markets=markets,
                 labels=_market_labels(mr, extract_market_lines(markets)),
                 book_odds=book_odds,
                 calibration=calibration_raw,
+                sim_stats=sim_stats if isinstance(sim_stats, dict) else {},
             )
 
     min_graded = int(getattr(config, "MARKET_CALIBRATION_MIN_GRADED", 200))
