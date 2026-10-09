@@ -424,3 +424,23 @@ def test_evaluate_calibration_fallback_uses_all_tags(tmp_path, monkeypatch):
         and r["prob_band"] == "all"
     )
     assert global_row["n_graded"] >= 7
+
+
+def test_evaluate_matches_on_fixture_id_when_teams_unknown(tmp_path):
+    """When match_result has fixture_id but NULL team IDs (e.g. Flashscore), join still succeeds."""
+    conn = connect(tmp_path / "fid_join.db")
+    init_db(conn)
+    _seed_fixture_prediction(conn, fixture_id=998877, date_utc="2026-06-15T20:00:00+00:00")
+    conn.execute(
+        """
+        INSERT INTO match_result (
+            source, date, home_name, away_name, fixture_id, fthg, ftag, ftr
+        ) VALUES ('flashscore', '2026-06-15', 'UnknownHome', 'UnknownAway', 998877, 3, 1, 'H')
+        """
+    )
+    conn.commit()
+    summary = evaluate_joined(conn)
+    conn.close()
+    assert summary["n"] == 1
+    assert summary["models"]["rule"]["hits"] == 1
+

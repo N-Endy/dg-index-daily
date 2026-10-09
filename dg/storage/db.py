@@ -212,6 +212,15 @@ def _ensure_additive_columns(c: sqlite3.Connection) -> None:
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_match_result_fixture ON match_result(fixture_id)"
     )
+    if mr_cols:
+        c.execute(
+            """
+            UPDATE match_result
+            SET fixture_id = CAST(json_extract(raw_json, '$.fixture_id') AS INTEGER)
+            WHERE fixture_id IS NULL
+              AND json_extract(raw_json, '$.fixture_id') IS NOT NULL
+            """
+        )
 
 
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:

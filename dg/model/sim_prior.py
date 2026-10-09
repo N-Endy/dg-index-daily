@@ -30,31 +30,38 @@ def extract_sim_fields(sim: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     Flatten useful sim_stats into a typed dict for projections, features, and Luna.
     Missing fields become None; callers should tolerate sparse payloads.
     """
-    sim = sim or {}
-    perc = sim.get("percents") if isinstance(sim.get("percents"), dict) else {}
-    xg = sim.get("xg") if isinstance(sim.get("xg"), dict) else {}
-    pxg = sim.get("projected_xg") if isinstance(sim.get("projected_xg"), dict) else {}
-    xgot = pxg.get("xgot") if isinstance(pxg.get("xgot"), dict) else {}
-    pxg_xg = pxg.get("xg") if isinstance(pxg.get("xg"), dict) else {}
-    sot = sim.get("shots_on_target") if isinstance(sim.get("shots_on_target"), dict) else {}
-    shots = sim.get("shots") if isinstance(sim.get("shots"), dict) else {}
-    corners = sim.get("corners") if isinstance(sim.get("corners"), dict) else {}
-    cards = sim.get("cards") if isinstance(sim.get("cards"), dict) else {}
-    sq = sim.get("shot_quality") if isinstance(sim.get("shot_quality"), dict) else {}
-    vs = sim.get("value_score") if isinstance(sim.get("value_score"), dict) else {}
-    rs = sim.get("regression_score") if isinstance(sim.get("regression_score"), dict) else {}
-    alert = sim.get("recent_match_alert") if isinstance(sim.get("recent_match_alert"), dict) else {}
-    fh = sim.get("first_half") if isinstance(sim.get("first_half"), dict) else {}
-    fh_xg = fh.get("xg") if isinstance(fh.get("xg"), dict) else {}
-    fh_sot = fh.get("shots_on_target") if isinstance(fh.get("shots_on_target"), dict) else {}
-    cs = sim.get("correct_score") if isinstance(sim.get("correct_score"), dict) else {}
-    top5 = cs.get("top_5") if isinstance(cs.get("top_5"), list) else []
-    gs = sim.get("goal_sequences") if isinstance(sim.get("goal_sequences"), dict) else {}
-    score_first = gs.get("score_first") if isinstance(gs.get("score_first"), dict) else {}
-    bcc = sim.get("big_chances_created") if isinstance(sim.get("big_chances_created"), dict) else {}
-    sib = sim.get("shots_inside_box") if isinstance(sim.get("shots_inside_box"), dict) else {}
-    tilt = sim.get("field_tilt") if isinstance(sim.get("field_tilt"), dict) else {}
-    pressure = sim.get("pressure") if isinstance(sim.get("pressure"), dict) else {}
+    s: Dict[str, Any] = sim if isinstance(sim, dict) else {}
+
+    def _d(key: str, parent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        p = s if parent is None else parent
+        val = p.get(key)
+        return val if isinstance(val, dict) else {}
+
+    perc = _d("percents")
+    xg = _d("xg")
+    pxg = _d("projected_xg")
+    xgot = _d("xgot", pxg)
+    pxg_xg = _d("xg", pxg)
+    sot = _d("shots_on_target")
+    shots = _d("shots")
+    corners = _d("corners")
+    cards = _d("cards")
+    sq = _d("shot_quality")
+    vs = _d("value_score")
+    rs = _d("regression_score")
+    alert = _d("recent_match_alert")
+    fh = _d("first_half")
+    fh_xg = _d("xg", fh)
+    fh_sot = _d("shots_on_target", fh)
+    cs = _d("correct_score")
+    raw_top5 = cs.get("top_5")
+    top5: List[Any] = raw_top5 if isinstance(raw_top5, list) else []
+    gs = _d("goal_sequences")
+    score_first = _d("score_first", gs)
+    bcc = _d("big_chances_created")
+    sib = _d("shots_inside_box")
+    tilt = _d("field_tilt")
+    pressure = _d("pressure")
 
     top_scores: List[Dict[str, Any]] = []
     for row in top5[:5]:
@@ -134,9 +141,9 @@ def extract_sim_fields(sim: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "correct_score_model": cs.get("model"),
         "top_scores": top_scores,
         "has_score_matrix": isinstance(cs.get("matrix"), list) and bool(cs.get("matrix")),
-        "two_leg_ctx": sim.get("two_leg_ctx"),
-        "goal_timeline": sim.get("goal_timeline") if isinstance(sim.get("goal_timeline"), dict) else None,
-        "matchup_pace_score": _num(_nested(sim, "matchup_pace", "score")),
+        "two_leg_ctx": s.get("two_leg_ctx"),
+        "goal_timeline": s.get("goal_timeline") if isinstance(s.get("goal_timeline"), dict) else None,
+        "matchup_pace_score": _num(_nested(s, "matchup_pace", "score")),
     }
 
 
@@ -296,29 +303,33 @@ def derive_sim_probabilities(sim: Optional[Dict[str, Any]]) -> Optional[Dict[str
     Prefer Dixon–Coles correct_score.matrix; fall back to percents.
     Returns None when neither source is usable (caller should use homemade Poisson).
     """
-    sim = sim or {}
-    fields = extract_sim_fields(sim)
-    cs = sim.get("correct_score") if isinstance(sim.get("correct_score"), dict) else {}
+    s: Dict[str, Any] = sim if isinstance(sim, dict) else {}
+    fields = extract_sim_fields(s)
+    raw_cs = s.get("correct_score")
+    cs: Dict[str, Any] = raw_cs if isinstance(raw_cs, dict) else {}
     matrix = cs.get("matrix")
     source = "none"
-    probs: Optional[Dict[str, float]] = None
+    probs: Optional[Dict[str, Any]] = None
     if isinstance(matrix, list) and matrix:
-        probs = _matrix_to_probs(matrix)
-        if probs:
+        p_mat = _matrix_to_probs(matrix)
+        if p_mat:
+            probs = dict(p_mat)
             source = "dg_dixon_coles"
     if probs is None:
-        probs = _probs_from_percents(fields)
-        if probs:
+        p_perc = _probs_from_percents(fields)
+        if p_perc:
+            probs = dict(p_perc)
             source = "dg_percents"
     if probs is None:
         return None
 
-    fh = _fh_from_timeline_or_perc(sim, fields)
+    fh = _fh_from_timeline_or_perc(s, fields)
     for k, v in fh.items():
         probs.setdefault(k, v)
 
     # Team O1.5 from percents if not from matrix
-    perc = sim.get("percents") if isinstance(sim.get("percents"), dict) else {}
+    raw_perc = s.get("percents")
+    perc: Dict[str, Any] = raw_perc if isinstance(raw_perc, dict) else {}
     for key, pct_key in (
         ("home_over_1_5", "home_o1_5_pct"),
         ("away_over_1_5", "away_o1_5_pct"),

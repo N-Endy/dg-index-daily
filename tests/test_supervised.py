@@ -1,8 +1,6 @@
 """Tests for Platt calibration."""
 from __future__ import annotations
 
-import json
-
 from dg import config
 from dg.model.supervised import _fit_platt, apply_calibration, fit_calibration
 from dg.storage.db import connect, init_db

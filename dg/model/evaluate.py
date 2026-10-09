@@ -221,7 +221,8 @@ def _score_market_row(
 
     book_odds = book_odds or {}
     sim_stats = sim_stats or {}
-    perc = sim_stats.get("percents") if isinstance(sim_stats.get("percents"), dict) else {}
+    raw_perc = sim_stats.get("percents")
+    perc: Dict[str, Any] = raw_perc if isinstance(raw_perc, dict) else {}
 
     def _record_calibration(market_key: str, m: Dict[str, Any], hit: bool) -> None:
         if calibration is None:
@@ -465,7 +466,7 @@ def _fetch_joined_prediction_rows(conn, *, model_tag: Optional[str] = None):
     """Latest prediction per fixture, optionally filtered to a markets model tag."""
     sql = """
         SELECT
-            p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
+            p.fixture_id, p.lean, p.confidence, p.score, p.model_version, p.markets_json, p.probs_json,
             f.home_id, f.away_id, f.date_utc, f.home_name, f.away_name,
             fp.home_win_pct, fp.draw_pct, fp.away_win_pct, fp.book_odds_json,
             fp.sim_stats_json
@@ -530,24 +531,24 @@ def _record_row_calibration(
         )
 
 
-def evaluate_joined(conn) -> Dict[str, Any]:
+def evaluate_joined(conn, *, full_retrospective: bool = False) -> Dict[str, Any]:
     """
     Score stored predictions that have matched results, and (when that set is
     empty) retrospectively score resolved historical match_result rows using
     the latest DG snapshot + rule_v1. Also scores markets_json where labels exist.
     """
     from dg import config
-    from dg.report.results_attach import build_result_index, fixture_day
+    from dg.report.results_attach import build_result_index, lookup_result
 
     result_index = build_result_index(
         conn.execute(
             """
-            SELECT home_team_id, away_team_id, date, ftr, fthg, ftag, hthg, htag,
+            SELECT fixture_id, home_team_id, away_team_id, date, ftr, fthg, ftag, hthg, htag,
                    hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
                    closing_home, closing_draw, closing_away
             FROM match_result
             WHERE ftr IS NOT NULL
-              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+              AND (fixture_id IS NOT NULL OR (home_team_id IS NOT NULL AND away_team_id IS NOT NULL))
             """
         ).fetchall()
     )
@@ -568,15 +569,19 @@ def evaluate_joined(conn) -> Dict[str, Any]:
     calibration_fallback = False
 
     for r in rows:
-        day = fixture_day(r["date_utc"])
         try:
             hid = int(r["home_id"]) if r["home_id"] is not None else None
             aid = int(r["away_id"]) if r["away_id"] is not None else None
         except (TypeError, ValueError):
             hid = aid = None
-        if hid is None or aid is None or not day:
-            continue
-        mr = result_index.get((hid, aid, day))
+        fid = r["fixture_id"] if "fixture_id" in r.keys() else None
+        mr = lookup_result(
+            result_index,
+            home_id=hid,
+            away_id=aid,
+            date_utc=r["date_utc"],
+            fixture_id=fid,
+        )
         if mr is None:
             continue
         n_joined += 1
@@ -643,15 +648,19 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         fallback_raw: Dict[Tuple[str, str, str], List[int]] = {}
         fallback_joined = 0
         for r in all_rows:
-            day = fixture_day(r["date_utc"])
             try:
                 hid = int(r["home_id"]) if r["home_id"] is not None else None
                 aid = int(r["away_id"]) if r["away_id"] is not None else None
             except (TypeError, ValueError):
                 hid = aid = None
-            if hid is None or aid is None or not day:
-                continue
-            mr = result_index.get((hid, aid, day))
+            fid = r["fixture_id"] if "fixture_id" in r.keys() else None
+            mr = lookup_result(
+                result_index,
+                home_id=hid,
+                away_id=aid,
+                date_utc=r["date_utc"],
+                fixture_id=fid,
+            )
             if mr is None:
                 continue
             fallback_joined += 1
@@ -687,22 +696,37 @@ def evaluate_joined(conn) -> Dict[str, Any]:
             return {"n": 0, "message": "No snapshot and no joined predictions"}
         snapshot_id = int(snap["id"])
         _, cfg = load_config()
+        hist_limit = "" if full_retrospective else "ORDER BY date DESC LIMIT 200"
         hist = conn.execute(
-            """
+            f"""
             SELECT * FROM match_result
             WHERE ftr IS NOT NULL
               AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+            {hist_limit}
             """
         ).fetchall()
         mode = "retrospective_rule_v2"
+        team_features_cache: Dict[int, Dict[str, Any]] = {}
+        league_avg_cache: Dict[Any, float] = {}
+
+        def _get_team_features(tid: int) -> Dict[str, Any]:
+            if tid not in team_features_cache:
+                team_features_cache[tid] = build_team_features(conn, tid, snapshot_id)
+            return team_features_cache[tid]
+
+        def _get_league_avg(lid: Any) -> float:
+            if lid not in league_avg_cache:
+                league_avg_cache[lid] = league_avg_ortg(conn, snapshot_id, lid)
+            return league_avg_cache[lid]
+
         for mr in hist:
-            home = build_team_features(conn, int(mr["home_team_id"]), snapshot_id)
-            away = build_team_features(conn, int(mr["away_team_id"]), snapshot_id)
+            home = _get_team_features(int(mr["home_team_id"]))
+            away = _get_team_features(int(mr["away_team_id"]))
             matchup = build_matchup(home, away)
             if not matchup.get("ok"):
                 continue
             score, _weighted, _drivers = _score_matchup(matchup, cfg)
-            league_avg = league_avg_ortg(conn, snapshot_id, matchup.get("league_id"))
+            league_avg = _get_league_avg(matchup.get("league_id"))
             goal_probs = predict_goals(matchup, league_avg=league_avg)
             blended = _blend_1x2(goal_probs, score, cfg)
             lean = _lean_from_probs(blended)
@@ -755,7 +779,7 @@ def evaluate_joined(conn) -> Dict[str, Any]:
         xs = [x for x in xs if x == x]
         return sum(xs) / len(xs) if xs else None
 
-    def _hit_rate(hits: List[int]) -> Optional[float]:
+    def _hit_rate(hits: Any) -> Optional[float]:
         return sum(hits) / len(hits) if hits else None
 
     summary: Dict[str, Any] = {

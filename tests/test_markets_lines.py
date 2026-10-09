@@ -4,7 +4,6 @@ from __future__ import annotations
 from dg.model.evaluate import _market_labels
 from dg.model.markets import (
     DEFAULT_MARKET_LINES,
-    MARKET_LINE_LADDERS,
     extract_market_lines,
     predict_markets,
     select_line,

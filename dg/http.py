@@ -76,7 +76,7 @@ def _session() -> requests.Session:
     # dead localhost proxy; football-data.co.uk HTTPS→HTTP redirects then fail
     # with Connection refused to 127.0.0.1:80.
     s.trust_env = False
-    s.proxies.update(_NO_PROXIES)
+    s.proxies.update(_NO_PROXIES)  # type: ignore[arg-type]
     s.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
     retry = Retry(
         total=config.MAX_RETRIES,
@@ -137,7 +137,7 @@ def fetch(
             current,
             headers=headers,
             timeout=config.REQUEST_TIMEOUT_SEC,
-            proxies=_NO_PROXIES,
+            proxies=_NO_PROXIES,  # type: ignore[arg-type]
             allow_redirects=False,
         )
         if resp.status_code in _REDIRECT_STATUS:

@@ -233,7 +233,25 @@ def load_dashboard_context(
 
         result_index = load_result_index(conn)
 
+        from dg.features.matchup import book_lean, sim_lean
         from dg.leagues import attach_league_display
+
+        proj_rows = conn.execute(
+            """
+            SELECT fixture_id, home_win_pct, draw_pct, away_win_pct, book_odds_json,
+                   sim_xg_home, sim_xg_away
+            FROM fixture_projection
+            WHERE id IN (
+                SELECT MAX(id) FROM fixture_projection GROUP BY fixture_id
+            )
+            """
+        ).fetchall()
+        projections_by_fixture: Dict[int, Any] = {}
+        for pr in proj_rows:
+            try:
+                projections_by_fixture[int(pr["fixture_id"])] = pr
+            except (TypeError, ValueError):
+                continue
 
         window_start, window_end = board_date_bounds()
         window_days = set(board_dates_in_window())
@@ -289,16 +307,12 @@ def load_dashboard_context(
                     continue
 
             # Attach latest projection baselines if available
-            proj = conn.execute(
-                """
-                SELECT home_win_pct, draw_pct, away_win_pct, book_odds_json,
-                       sim_xg_home, sim_xg_away
-                FROM fixture_projection
-                WHERE fixture_id = ?
-                ORDER BY observed_at DESC LIMIT 1
-                """,
-                (d["fixture_id"],),
-            ).fetchone()
+            fid = None
+            try:
+                fid = int(d["fixture_id"])
+            except (TypeError, ValueError):
+                pass
+            proj = projections_by_fixture.get(fid) if fid is not None else None
             if proj:
                 d["sim_xg_home"] = proj["sim_xg_home"]
                 d["sim_xg_away"] = proj["sim_xg_away"]
@@ -307,8 +321,6 @@ def load_dashboard_context(
                     book = json.loads(proj["book_odds_json"] or "{}")
                 except json.JSONDecodeError:
                     book = {}
-                from dg.features.matchup import book_lean, sim_lean
-
                 d["dg_sim_lean"] = sim_lean(
                     proj["home_win_pct"], proj["draw_pct"], proj["away_win_pct"]
                 )

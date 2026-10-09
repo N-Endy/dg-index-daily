@@ -6,7 +6,11 @@ from pathlib import Path
 
 from dg.ingest.fixtures import ingest_fixtures
 from dg.storage.db import connect, init_db
-from dg.storage.migrations import backfill_projection_typed
+from dg.storage.migrations import (
+    backfill_match_result_fixture_id,
+    backfill_projection_typed,
+    clean_unmatchable_results,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -218,3 +222,48 @@ def test_backfill_projection_typed_from_sim_stats(tmp_path):
     assert row["congestion_home"] == 1
     assert row["sot_over_8_5_pct"] == 62.0
     conn.close()
+
+
+def test_clean_unmatchable_results(tmp_path):
+    db_path = tmp_path / "clean_mr.db"
+    conn = connect(db_path)
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO match_result (source, date, home_name, away_name, raw_json)
+        VALUES
+            ('football-data.co.uk', '2026-08-01', 'Team A', 'Team B', '{"Country": "Argentina"}'),
+            ('football-data.co.uk', '2026-08-01', 'Arsenal', 'Chelsea', '{"Country": "England"}')
+        """
+    )
+    conn.commit()
+    purged = clean_unmatchable_results(conn)
+    conn.commit()
+    assert purged == 1
+    remaining = conn.execute("SELECT count(*) FROM match_result").fetchone()[0]
+    assert remaining == 1
+    conn.close()
+
+
+def test_backfill_match_result_fixture_id(tmp_path):
+    db_path = tmp_path / "bf_fid.db"
+    conn = connect(db_path)
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO match_result (source, date, home_name, away_name, raw_json)
+        VALUES ('flashscore', '2026-08-01', 'Bochum', 'Hertha', '{"fixture_id": 888123}')
+        """
+    )
+    conn.commit()
+    # Force fixture_id to NULL
+    conn.execute("UPDATE match_result SET fixture_id = NULL")
+    conn.commit()
+
+    n = backfill_match_result_fixture_id(conn)
+    conn.commit()
+    assert n == 1
+    row = conn.execute("SELECT fixture_id FROM match_result LIMIT 1").fetchone()
+    assert row["fixture_id"] == 888123
+    conn.close()
+

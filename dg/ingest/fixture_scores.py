@@ -702,12 +702,12 @@ def sync_fixture_scores(conn) -> Dict[str, Any]:
             score = parse_finished_score(item)
             if not score:
                 continue
-            fid = score.get("fixture_id")
-            if fid is None or int(fid) not in by_id or int(fid) in written_ids:
+            raw_fid = score.get("fixture_id")
+            if raw_fid is None or int(raw_fid) not in by_id or int(raw_fid) in written_ids:
                 continue
-            fid = int(fid)
-            upsert_score_result(conn, by_id[fid], score, source=SOURCE_API)
-            written_ids.add(fid)
+            f_id = int(raw_fid)
+            upsert_score_result(conn, by_id[f_id], score, source=SOURCE_API)
+            written_ids.add(f_id)
             api_written += 1
 
     remaining_ids = [fid for fid in by_id if fid not in written_ids]

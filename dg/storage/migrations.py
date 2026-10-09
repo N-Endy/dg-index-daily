@@ -151,6 +151,44 @@ def backfill_projection_typed(conn) -> int:
     return updated
 
 
+def clean_unmatchable_results(conn) -> int:
+    """Purge unmatchable Argentine match_result rows where teams are not tracked by DataGaffer."""
+    cur = conn.execute(
+        """
+        DELETE FROM match_result
+        WHERE home_team_id IS NULL
+          AND away_team_id IS NULL
+          AND (
+            json_extract(raw_json, '$.Country') = 'Argentina'
+            OR source LIKE '%ARG%'
+          )
+        """
+    )
+    purged = cur.rowcount
+    if purged:
+        logger.info("Purged %d unmatchable Argentine match_result rows", purged)
+    return purged
+
+
+def backfill_match_result_fixture_id(conn) -> int:
+    """Extract fixture_id from raw_json on match_result rows where fixture_id is NULL."""
+    mr_cols = _table_cols(conn, "match_result")
+    if "fixture_id" not in mr_cols:
+        return 0
+    cur = conn.execute(
+        """
+        UPDATE match_result
+        SET fixture_id = CAST(json_extract(raw_json, '$.fixture_id') AS INTEGER)
+        WHERE fixture_id IS NULL
+          AND json_extract(raw_json, '$.fixture_id') IS NOT NULL
+        """
+    )
+    updated = cur.rowcount
+    if updated:
+        logger.info("Backfilled fixture_id on %d match_result rows", updated)
+    return updated
+
+
 def migrate(db_path: Optional[Path] = None) -> None:
     """Apply schema.sql and additive column migrations + strength backfill."""
     conn = init_db(connect(db_path) if db_path is not None else None)
@@ -158,5 +196,7 @@ def migrate(db_path: Optional[Path] = None) -> None:
     backfill_strength_from_raw(conn)
     backfill_league_country(conn)
     backfill_projection_typed(conn)
+    clean_unmatchable_results(conn)
+    backfill_match_result_fixture_id(conn)
     conn.commit()
     conn.close()

@@ -148,6 +148,9 @@
   </aside>
 
   <div class="board">
+    <div class="board-search-bar">
+      <input type="search" id="board-search-input" placeholder="Instant search by team or league (e.g. Chelsea, La Liga, Arsenal)..." aria-label="Instant search fixtures" autocomplete="off" />
+    </div>
     {% if grouped %}
     {% for day, items in grouped %}
     <section class="day-block">

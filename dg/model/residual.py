@@ -193,22 +193,22 @@ def _one_vs_rest_fit(
 
 def collect_training_rows(conn) -> List[Dict[str, Any]]:
     """Joined prediction+result rows with pre-kickoff features only."""
-    from dg.report.results_attach import build_result_index, fixture_day
+    from dg.report.results_attach import build_result_index, lookup_result
 
     result_index = build_result_index(
         conn.execute(
             """
-            SELECT home_team_id, away_team_id, date, ftr, fthg, ftag
+            SELECT fixture_id, home_team_id, away_team_id, date, ftr, fthg, ftag
             FROM match_result
             WHERE ftr IS NOT NULL
-              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+              AND (fixture_id IS NOT NULL OR (home_team_id IS NOT NULL AND away_team_id IS NOT NULL))
             """
         ).fetchall()
     )
     rows = conn.execute(
         """
         SELECT
-            p.probs_json, p.markets_json, p.lean,
+            p.fixture_id, p.probs_json, p.markets_json, p.lean,
             f.home_id, f.away_id, f.date_utc, f.league_id,
             fp.book_odds_json, fp.sim_stats_json,
             fp.home_win_pct, fp.draw_pct, fp.away_win_pct
@@ -226,15 +226,19 @@ def collect_training_rows(conn) -> List[Dict[str, Any]]:
 
     out: List[Dict[str, Any]] = []
     for r in rows:
-        day = fixture_day(r["date_utc"])
         try:
-            hid = int(r["home_id"])
-            aid = int(r["away_id"])
+            hid = int(r["home_id"]) if r["home_id"] is not None else None
+            aid = int(r["away_id"]) if r["away_id"] is not None else None
         except (TypeError, ValueError):
-            continue
-        if not day:
-            continue
-        mr = result_index.get((hid, aid, day))
+            hid = aid = None
+        fid = r["fixture_id"] if "fixture_id" in r.keys() else None
+        mr = lookup_result(
+            result_index,
+            home_id=hid,
+            away_id=aid,
+            date_utc=r["date_utc"],
+            fixture_id=fid,
+        )
         if mr is None:
             continue
         ftr = (mr["ftr"] or "").upper()

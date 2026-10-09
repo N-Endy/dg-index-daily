@@ -310,6 +310,8 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
         if not isinstance(row, dict):
             continue
         fid = row.get("fixtureId", row.get("fixture_id", row.get("PredictionId")))
+        if fid is None:
+            continue
         mkey = row.get("marketKey", row.get("market_key", row.get("Market")))
         reason = row.get("reason", row.get("Reason", "")) or ""
         try:
@@ -365,6 +367,8 @@ def parse_screen_response(raw: str) -> List[Dict[str, Any]]:
             score_source = "components"
         else:
             score = row.get("score", row.get("Score", row.get("rating")))
+            if score is None:
+                continue
             try:
                 score_i = int(round(float(score)))
             except (TypeError, ValueError):
@@ -426,22 +430,33 @@ def _finalize_score_for_candidate(
         base_rate=float(reli["rate"]),
         flat_score=flat,
     )
-    try:
-        prob = float(cand.get("prob"))
-        echo = abs(flat - int(round(prob * 100)))
-        logger.warning(
-            "AI vet flat-score fallback fixture=%s market=%s flat=%s model_pct=%s "
-            "echo_delta=%s publish=%s base_rate=%.3f tier=%s",
-            cand.get("fixture_id"),
-            cand.get("market_key"),
-            flat,
-            int(round(prob * 100)),
-            echo,
-            score,
-            float(reli["rate"]),
-            tier,
-        )
-    except (TypeError, ValueError):
+    raw_prob = cand.get("prob")
+    if raw_prob is not None:
+        try:
+            prob = float(raw_prob)
+            echo = abs(flat - int(round(prob * 100)))
+            logger.warning(
+                "AI vet flat-score fallback fixture=%s market=%s flat=%s model_pct=%s "
+                "echo_delta=%s publish=%s base_rate=%.3f tier=%s",
+                cand.get("fixture_id"),
+                cand.get("market_key"),
+                flat,
+                int(round(prob * 100)),
+                echo,
+                score,
+                float(reli["rate"]),
+                tier,
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "AI vet flat-score fallback fixture=%s market=%s flat=%s publish=%s tier=%s",
+                cand.get("fixture_id"),
+                cand.get("market_key"),
+                flat,
+                score,
+                tier,
+            )
+    else:
         logger.warning(
             "AI vet flat-score fallback fixture=%s market=%s flat=%s publish=%s tier=%s",
             cand.get("fixture_id"),
@@ -528,18 +543,24 @@ def _score_telemetry(approved: List[Dict[str, Any]]) -> Dict[str, Any]:
     n_flat = sum(1 for p in approved if p.get("ai_score_source") == "flat")
     echo_n = 0
     for p in approved:
+        raw_prob_val = p.get("prob")
+        if raw_prob_val is None:
+            continue
         try:
-            prob = float(p.get("prob"))
+            prob = float(raw_prob_val)
         except (TypeError, ValueError):
             continue
         if abs(int(p.get("ai_score") or 0) - int(round(prob * 100))) <= ECHO_DELTA:
             echo_n += 1
     n = len(scores)
+    median: Optional[float] = None
+    score_min: Optional[int] = None
+    score_max: Optional[int] = None
     if n:
         ordered = sorted(scores)
         mid = n // 2
         if n % 2:
-            median = ordered[mid]
+            median = float(ordered[mid])
         else:
             median = (ordered[mid - 1] + ordered[mid]) / 2.0
         score_min = ordered[0]

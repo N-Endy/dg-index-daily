@@ -52,7 +52,7 @@ def _fit_platt(probs: List[float], labels: List[int], *, lr: float = 0.05, max_i
 
 def fit_calibration(conn, *, model_version: str) -> Dict[str, Any]:
     """Fit per-outcome Platt scaling from joined predictions and persist."""
-    from dg.report.results_attach import build_result_index, fixture_day
+    from dg.report.results_attach import build_result_index, lookup_result
 
     n = labelled_count(conn)
     if n < config.SUPERVISED_MIN_LABELS:
@@ -63,20 +63,21 @@ def fit_calibration(conn, *, model_version: str) -> Dict[str, Any]:
     result_index = build_result_index(
         conn.execute(
             """
-            SELECT home_team_id, away_team_id, date, ftr
+            SELECT fixture_id, home_team_id, away_team_id, date, ftr
             FROM match_result
             WHERE ftr IS NOT NULL
-              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+              AND (fixture_id IS NOT NULL OR (home_team_id IS NOT NULL AND away_team_id IS NOT NULL))
             """
         ).fetchall()
     )
 
     rows = conn.execute(
         """
-        SELECT p.probs_json, f.home_id, f.away_id, f.date_utc
+        SELECT p.fixture_id, p.probs_json, f.home_id, f.away_id, f.date_utc
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id
-        WHERE p.probs_json IS NOT NULL
+        WHERE p.id IN (SELECT MAX(id) FROM prediction GROUP BY fixture_id)
+          AND p.probs_json IS NOT NULL
         """
     ).fetchall()
 
@@ -84,15 +85,19 @@ def fit_calibration(conn, *, model_version: str) -> Dict[str, Any]:
         o: ([], []) for o in _OUTCOMES
     }
     for r in rows:
-        day = fixture_day(r["date_utc"])
         try:
             hid = int(r["home_id"]) if r["home_id"] is not None else None
             aid = int(r["away_id"]) if r["away_id"] is not None else None
         except (TypeError, ValueError):
             hid = aid = None
-        if hid is None or aid is None or not day:
-            continue
-        mr = result_index.get((hid, aid, day))
+        fid = r["fixture_id"] if "fixture_id" in r.keys() else None
+        mr = lookup_result(
+            result_index,
+            home_id=hid,
+            away_id=aid,
+            date_utc=r["date_utc"],
+            fixture_id=fid,
+        )
         if mr is None:
             continue
         try:
@@ -269,24 +274,24 @@ def _samples_for_market_calibration(
     """Collect (p_lean_raw, hit, iso_week) per market from date-aware joined predictions."""
     from dg.model.evaluate import _market_labels
     from dg.model.markets import MARKET_ORDER, extract_market_lines, markets_model_tag
-    from dg.report.results_attach import build_result_index, fixture_day
+    from dg.report.results_attach import build_result_index, fixture_day, lookup_result
 
     result_index = build_result_index(
         conn.execute(
             """
-            SELECT home_team_id, away_team_id, date, ftr, fthg, ftag, hthg, htag,
+            SELECT fixture_id, home_team_id, away_team_id, date, ftr, fthg, ftag, hthg, htag,
                    hs, as_shots, hst, ast, hc, ac, hy, ay, hr, ar,
                    closing_home, closing_draw, closing_away
             FROM match_result
             WHERE ftr IS NOT NULL
-              AND home_team_id IS NOT NULL AND away_team_id IS NOT NULL
+              AND (fixture_id IS NOT NULL OR (home_team_id IS NOT NULL AND away_team_id IS NOT NULL))
             """
         ).fetchall()
     )
     tag = markets_model_tag()
     rows = conn.execute(
         """
-        SELECT p.lean, p.probs_json, p.markets_json, f.home_id, f.away_id, f.date_utc
+        SELECT p.fixture_id, p.lean, p.probs_json, p.markets_json, f.home_id, f.away_id, f.date_utc
         FROM prediction p
         JOIN fixture f ON f.fixture_id = p.fixture_id
         WHERE p.id IN (SELECT MAX(id) FROM prediction GROUP BY fixture_id)
@@ -310,17 +315,22 @@ def _samples_for_market_calibration(
         bucket[2].append(week)
 
     for r in rows:
-        day = fixture_day(r["date_utc"])
         try:
             hid = int(r["home_id"]) if r["home_id"] is not None else None
             aid = int(r["away_id"]) if r["away_id"] is not None else None
         except (TypeError, ValueError):
             hid = aid = None
-        if hid is None or aid is None or not day:
-            continue
-        mr = result_index.get((hid, aid, day))
+        fid = r["fixture_id"] if "fixture_id" in r.keys() else None
+        mr = lookup_result(
+            result_index,
+            home_id=hid,
+            away_id=aid,
+            date_utc=r["date_utc"],
+            fixture_id=fid,
+        )
         if mr is None:
             continue
+        day = fixture_day(r["date_utc"])
         week = _iso_week_key(day)
         try:
             markets = json.loads(r["markets_json"] or "{}") if r["markets_json"] else {}

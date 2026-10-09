@@ -79,7 +79,6 @@ FD_NEW_COUNTRY = (
     "DEN",  # Superliga
     "AUT",  # Austrian Bundesliga
     "SWZ",  # Swiss Super League
-    "ARG",
 )
 
 # Contract / quality

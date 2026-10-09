@@ -83,8 +83,11 @@ def compute_scoring_environment(
             continue
         if d > day0:
             continue
+        fthg_val, ftag_val = get("fthg"), get("ftag")
+        if fthg_val is None or ftag_val is None:
+            continue
         try:
-            goals = float(int(get("fthg")) + int(get("ftag")))
+            goals = float(int(fthg_val) + int(ftag_val))
         except (TypeError, ValueError, KeyError, IndexError):
             continue
         age = (day0 - d).days

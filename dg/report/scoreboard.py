@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from dg.report.best_leans import select_strongest_lean
 from dg.report.loaders import enrich_prediction_for_display
@@ -140,12 +140,14 @@ def recent_ai_performance(conn, *, days: int = 30) -> Dict[str, Any]:
             continue
 
         n_graded += 1
-        try:
-            sc = float(d.get("score") if d.get("score") is not None else payload.get("ai_score"))
-            score_sum += sc
-            n_with_score += 1
-        except (TypeError, ValueError):
-            pass
+        raw_sc = d.get("score") if d.get("score") is not None else payload.get("ai_score")
+        if raw_sc is not None:
+            try:
+                sc = float(raw_sc)
+                score_sum += sc
+                n_with_score += 1
+            except (TypeError, ValueError):
+                pass
         day_key = str(d.get("day") or "")
         if rk == "hit":
             n_hits += 1

@@ -165,3 +165,11 @@ def test_poisson_under_prob_is_complement():
     assert abs(out["goals_2_5"]["prob"] - 0.65) < 1e-6
     assert out["btts"]["lean"] == "No"
     assert abs(out["btts"]["prob"] - 0.60) < 1e-6
+
+
+def test_btts_and_team_goals_heuristic_fallback_when_poisson_missing():
+    out = predict_markets(_base_matchup(), goal_probs=None)
+    for k in ("btts", "team_goals_home_1_5", "team_goals_away_1_5"):
+        assert out[k]["prob"] is not None
+        assert 0.15 <= out[k]["prob"] <= 0.85
+

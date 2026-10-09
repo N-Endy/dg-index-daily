@@ -3,10 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07090e" />
+  <meta name="description" content="DataGaffer Index Daily — Matchday press sheet, projections, and model analytics." />
+  <meta property="og:title" content="DG Index Daily" />
+  <meta property="og:description" content="Matchday press sheet, projections, and model analytics." />
+  <meta property="og:type" content="website" />
   <title>{% block title %}DG Index Daily{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
   {% block head %}{% endblock %}
 </head>
@@ -14,11 +19,11 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="wrap header-row">
-      <a class="brand" href="/">
+      <a class="brand" href="/" aria-label="DG Index Daily Home">
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-text">
           <span class="brand-name">DG Index Daily</span>
-          <span class="brand-tag">Matchday press sheet</span>
+          <span class="brand-tag">Tactical matchday telemetry</span>
         </span>
       </a>
       <nav aria-label="Primary">

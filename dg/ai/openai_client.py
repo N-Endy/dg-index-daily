@@ -60,8 +60,9 @@ def chat_json(
 
     url = f"{config.OPENAI_BASE_URL}/chat/completions"
     # GPT-5.x / Luna reject max_tokens; use max_completion_tokens (MatchPredictor).
+    selected_model = str(model or config.OPENAI_MODEL or "")
     payload: Dict[str, Any] = {
-        "model": model or config.OPENAI_MODEL,
+        "model": selected_model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -70,7 +71,10 @@ def chat_json(
         "response_format": {"type": "json_object"},
     }
     effort = (config.OPENAI_REASONING_EFFORT or "").strip()
-    if effort:
+    is_reasoning_model = any(
+        m in selected_model.lower() for m in ("o1", "o3", "o4", "luna", "reasoning")
+    )
+    if effort and is_reasoning_model:
         payload["reasoning_effort"] = effort
     headers = {
         "Authorization": f"Bearer {key}",

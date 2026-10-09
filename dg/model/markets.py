@@ -407,7 +407,7 @@ def predict_markets(
         drivers=b_drv,
         dg_lean=("Yes" if _num(perc.get("btts_pct"), 50) >= 50 else "No") if perc.get("btts_pct") is not None else None,
         book_lean=_yn_from_odds(book.get("btts_yes"), book.get("btts_no")),
-        prob=_lean_side_prob(float(p_btts) if p_btts is not None else None, b_lean, "Yes"),
+        prob=_lean_side_prob(float(p_btts) if p_btts is not None else _heuristic_p_pos(b_score), b_lean, "Yes"),
     )
 
     # --- Team goals home O1.5 ---
@@ -434,7 +434,7 @@ def predict_markets(
         drivers=th_drv,
         dg_lean=_ou_from_pct(perc.get("home_o1_5_pct")),
         book_lean=None,
-        prob=_lean_side_prob(float(p_ho) if p_ho is not None else None, th_lean, "Over"),
+        prob=_lean_side_prob(float(p_ho) if p_ho is not None else _heuristic_p_pos(th_score), th_lean, "Over"),
         line=1.5,
     )
     if book.get("home_o1_5"):
@@ -467,7 +467,7 @@ def predict_markets(
         drivers=ta_drv,
         dg_lean=_ou_from_pct(perc.get("away_o1_5_pct")),
         book_lean=None,
-        prob=_lean_side_prob(float(p_ao) if p_ao is not None else None, ta_lean, "Over"),
+        prob=_lean_side_prob(float(p_ao) if p_ao is not None else _heuristic_p_pos(ta_score), ta_lean, "Over"),
         line=1.5,
     )
     if book.get("away_o1_5"):

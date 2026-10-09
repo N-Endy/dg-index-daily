@@ -10,7 +10,7 @@ from dg.ingest.ratings import extract_strength_fields, ingest_ratings
 from dg.model.goals import derive_probabilities, expected_goals, predict_goals, score_matrix
 from dg.model.markets import predict_markets
 from dg.storage.db import connect, init_db
-from dg.storage.migrations import backfill_strength_from_raw, migrate
+from dg.storage.migrations import backfill_strength_from_raw
 from dg.web.plain_language import probability_plain, strength_gap_plain
 
 FIXTURES = Path(__file__).parent / "fixtures"

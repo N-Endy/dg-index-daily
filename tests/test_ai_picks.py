@@ -398,8 +398,8 @@ def test_fixture_group_payload_shuffles_deterministically():
 
 
 def test_vet_batches_candidates(tmp_path, monkeypatch):
-    from dg import config
     import dg.ai.vet_strongest as vs
+    from dg import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
@@ -774,8 +774,8 @@ def test_vet_with_injected_chat(tmp_path, monkeypatch):
 
 
 def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
-    from dg import config
     import dg.ai.vet_strongest as vs
+    from dg import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
@@ -825,8 +825,8 @@ def test_vet_flat_score_fallback_counts(tmp_path, monkeypatch):
 
 
 def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
-    from dg import config
     import dg.ai.vet_strongest as vs
+    from dg import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "dg.db")
@@ -903,3 +903,42 @@ def test_vet_llm_can_pick_alternate_market(tmp_path, monkeypatch):
     picks = load_ai_picks(conn, "2026-08-30")
     assert picks[0]["market_key"] == "btts"
     conn.close()
+
+
+def test_chat_json_reasoning_effort_guarded(monkeypatch):
+    from dg.ai.openai_client import chat_json
+
+    captured_payloads = []
+
+    class DummyResponse:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, json=None, headers=None):
+            captured_payloads.append(json)
+            return DummyResponse()
+
+    monkeypatch.setattr("httpx.Client", DummyClient)
+    monkeypatch.setattr("dg.config.OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("dg.config.OPENAI_REASONING_EFFORT", "low")
+
+    # Standard model: reasoning_effort must be absent
+    chat_json(system="s", user="u", model="gpt-4o")
+    assert "reasoning_effort" not in captured_payloads[-1]
+
+    # Reasoning model: reasoning_effort must be present
+    chat_json(system="s", user="u", model="o3-mini")
+    assert captured_payloads[-1].get("reasoning_effort") == "low"
+

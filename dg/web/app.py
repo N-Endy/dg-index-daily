@@ -99,7 +99,8 @@ def dashboard(
             parsed_min_prob = None
         else:
             steps = (0.55, 0.60, 0.65, 0.70)
-            parsed_min_prob = min(steps, key=lambda s: abs(s - parsed_min_prob))
+            target = parsed_min_prob
+            parsed_min_prob = min(steps, key=lambda s: abs(s - target))
 
     today = today_wat()
     has_active_filters = bool(
