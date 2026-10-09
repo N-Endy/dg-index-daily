@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
@@ -23,7 +24,12 @@ DISPLAY_TZ = ZoneInfo("Africa/Lagos")  # WAT (UTC+1, no DST)
 
 def get_connection():
     config.ensure_dirs()
-    return init_db(connect())
+    conn = connect()
+    try:
+        conn.execute("SELECT 1 FROM dg_snapshot LIMIT 1")
+    except sqlite3.OperationalError:
+        init_db(conn)
+    return conn
 
 
 def parse_market_filters(raw: Optional[Sequence[str]]) -> List[Tuple[str, str]]:

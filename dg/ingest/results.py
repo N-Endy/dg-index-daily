@@ -207,6 +207,7 @@ def backfill_results(
         counts[code] = ingest_main_rows(
             conn, rows, season=season, league_code=code, name_index=name_index
         )
+        conn.commit()
     if include_new:
         # Map 2627 -> prefer season year 2026/2027
         year_hint = f"20{season[:2]}" if len(season) == 4 else None
@@ -218,6 +219,7 @@ def backfill_results(
                 name_index=name_index,
                 season_filter=year_hint,
             )
+            conn.commit()
     sync_aliases_to_json(conn)
     total = sum(counts.values())
     logger.info("Backfilled %d match results across %d feeds", total, len(counts))
